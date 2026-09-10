@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.agaram.dhines.online.academy",
+      "sha256_cert_fingerprints": [
+        "77:7A:4C:B4:D2:B1:4F:B8:7A:A8:31:F9:8A:32:02:30:47:BA:49:20:2E:AE:F3:B5:EE:43:F6:BC:35:C2:3A:AC"
+      ]
+    }
+  }
+]

@@ -1,0 +1,77 @@
+{
+  "id": "/?source=pwa",
+  "name": "Agaram Dhines Online Academy",
+  "short_name": "Agaram",
+  "description": "Agaram Dhines Online Academy App",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "browser"
+  ],
+  "orientation": "portrait",
+  "start_url": "/",
+  "scope": "/",
+  "lang": "ta",
+  "dir": "ltr",
+  "categories": [
+    "education",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "/logo-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/logo-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/home.jpg",
+      "sizes": "768x1376",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "Agaram Dhines Academy App View"
+    },
+    {
+      "src": "/screenshots/desktop.jpg",
+      "sizes": "1376x768",
+      "type": "image/jpeg",
+      "form_factor": "wide",
+      "label": "Agaram Dhines Academy Home"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Student Dashboard",
+      "url": "/student-dashboard",
+      "description": "Go to Student Dashboard"
+    },
+    {
+      "name": "Admin Panel",
+      "url": "/admin",
+      "description": "Go to Admin Panel"
+    }
+  ]
+}

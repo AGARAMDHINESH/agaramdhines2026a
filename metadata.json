@@ -1,0 +1,12 @@
+{
+  "name": "Agaram Dhines Academy",
+  "description": "School Management Application for DINESHKUMAR AGARAM DHINES with AI features.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

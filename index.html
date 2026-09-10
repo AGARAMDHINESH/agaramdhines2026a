@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#ffffff">
+    <title>Agaram Dhines Online Academy</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/logo-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="description" content="Agaram Dhines Online Academy App">
+    
+    <!-- Environment / Node Globals Polyfills -->
+    <script>
+      if (typeof globalThis.global === 'undefined') {
+        globalThis.global = globalThis;
+      }
+      if (typeof globalThis.process === 'undefined') {
+        globalThis.process = { env: {} };
+      }
+      
+      // Safe localStorage polyfill for enclosed iframes/sandboxes
+      (function() {
+        var isLocalStorageAvailable = false;
+        try {
+          var testKey = '__storage_test__';
+          window.localStorage.setItem(testKey, testKey);
+          window.localStorage.removeItem(testKey);
+          isLocalStorageAvailable = true;
+        } catch (e) {
+          isLocalStorageAvailable = false;
+        }
+        
+        if (!isLocalStorageAvailable) {
+          console.warn("localStorage is not accessible in this environment. Falling back to safe memory-based storage.");
+          var mockStorage = {
+            _data: {},
+            setItem: function(key, val) { this._data[key] = String(val); },
+            getItem: function(key) { return this._data.hasOwnProperty(key) ? this._data[key] : null; },
+            removeItem: function(key) { delete this._data[key]; },
+            clear: function() { this._data = {}; },
+            key: function(i) { var keys = Object.keys(this._data); return keys[i] || null; },
+            get length() { return Object.keys(this._data).length; }
+          };
+          Object.defineProperty(window, 'localStorage', {
+            value: mockStorage,
+            writable: true,
+            configurable: true
+          });
+        }
+      })();
+    </script>
+    
+    <!-- Code Protection Script -->
+    <script>
+      // Disable Right Click
+      document.addEventListener('contextmenu', event => event.preventDefault());
+
+      // Disable specific keyboard shortcuts (F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+U, Ctrl+S)
+      document.onkeydown = function(e) {
+        if(e.keyCode == 123) {
+           return false;
+        }
+        if(e.ctrlKey && e.shiftKey && e.keyCode == 'I'.charCodeAt(0)) {
+           return false;
+        }
+        if(e.ctrlKey && e.shiftKey && e.keyCode == 'J'.charCodeAt(0)) {
+           return false;
+        }
+        if(e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) {
+           return false;
+        }
+        if(e.ctrlKey && e.keyCode == 'S'.charCodeAt(0)) {
+           return false;
+        }
+      }
+    </script>
+  </head>
+  <body class="bg-slate-50 min-h-screen text-slate-800" ondragstart="return false">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <!-- PWABuilder Service Worker Detection Script -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            .then(reg => console.log('SW registered successfully', reg))
+            .catch(err => console.log('SW registration failed', err));
+        });
+      }
+    </script>
+  </body>
+</html>
+
