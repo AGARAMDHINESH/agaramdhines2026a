@@ -151,6 +151,41 @@ const setupRealtimeListener = (key: string) => {
       activeListeners[`${key}_col`] = colUnsub;
     }
 
+    // Also listen to collection changes for students so student data is never missed or lost
+    if (key === 'students') {
+      const colUnsub = onSnapshot(collection(db, 'students'), (colSnap) => {
+        if (!colSnap.empty) {
+          const list = colSnap.docs.map(d => ({ ...d.data(), id: d.id }));
+          
+          let deletedIds: string[] = [];
+          try {
+            const rawDeleted = localStorage.getItem('students_deleted');
+            if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
+          } catch (_) {}
+
+          let localStudents: any[] = [];
+          try {
+            const rawLocal = localStorage.getItem('students');
+            if (rawLocal) localStudents = JSON.parse(rawLocal);
+          } catch (_) {}
+
+          const merged = mergeArraysById(list, localStudents).filter(u => !deletedIds.includes(String(u.id).toLowerCase()));
+          const cleanMerged = deduplicateAndSanitizeStudents(merged);
+          
+          try {
+            localStorage.setItem('students', JSON.stringify(cleanMerged));
+          } catch (_) {}
+
+          window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'students', data: cleanMerged } }));
+        }
+      }, (err: any) => {
+        if (err?.code !== 'unavailable') {
+          console.warn("Realtime students collection error:", err?.message || err);
+        }
+      });
+      activeListeners[`${key}_col`] = colUnsub;
+    }
+
     activeListeners[key] = unsub;
   } catch (e) {
     console.warn(`Failed to setup realtime listener for ${key}:`, e);
@@ -302,7 +337,7 @@ const getData = async (key: string, defaultValue: any) => {
         return null;
       };
 
-      const timeoutMs = 2500;
+      const timeoutMs = 8000;
       const fbData = await Promise.race([
         fetchFirebase(),
         new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs))
@@ -355,9 +390,9 @@ const saveData = async (key: string, data: any) => {
       const singletonRef = doc(db, 'singletons', key);
       await setDoc(singletonRef, { data: cleanData, updatedAt: now }, { merge: false });
 
-      // If key is students/forms/staffs/etc., sync individual documents cleanly
-      if (Array.isArray(cleanData) && ['forms', 'students', 'staffs', 'employeeTasks', 'dailyWorkUploads', 'zoomLinks', 'formSubmissions'].includes(key)) {
-        for (const item of cleanData.slice(0, 100)) {
+      // If key is students/forms/staffs/courses/etc., sync ALL individual documents cleanly without truncation
+      if (Array.isArray(cleanData) && ['forms', 'students', 'staffs', 'employeeTasks', 'dailyWorkUploads', 'zoomLinks', 'formSubmissions', 'courses', 'courseMaterials', 'youtubeLinks', 'fees'].includes(key)) {
+        for (const item of cleanData) {
           if (item && item.id) {
             setDoc(doc(db, key, String(item.id)), { ...item, updatedAt: item.updatedAt || new Date().toISOString() }, { merge: true }).catch(() => {});
           }
@@ -845,22 +880,134 @@ export const deduplicateAndSanitizeStudents = (students: any[]): any[] => {
 };
 
 export const getStudents = async (): Promise<any[]> => {
-  // Read directly from database
-  const raw = await getData('students', []);
-  if (Array.isArray(raw)) {
-    return deduplicateAndSanitizeStudents(raw);
+  setupRealtimeListener('students');
+
+  let deletedIds: string[] = [];
+  try {
+    const rawDeleted = localStorage.getItem('students_deleted');
+    if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
+  } catch (_) {}
+
+  let localStudents: any[] = [];
+  try {
+    const rawLocal = localStorage.getItem('students');
+    if (rawLocal) {
+      localStudents = JSON.parse(rawLocal);
+    }
+  } catch (_) {}
+
+  let remoteStudents: any[] = [];
+
+  if (isFirebaseConfigured) {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'students'));
+      if (!querySnapshot.empty) {
+        remoteStudents = querySnapshot.docs.map((docSnap) => ({
+          ...docSnap.data(),
+          id: docSnap.id
+        }));
+      }
+    } catch (fbErr) {
+      console.warn("Firestore collection query for students:", fbErr);
+    }
+
+    try {
+      const singletonSnap = await getDoc(doc(db, 'singletons', 'students'));
+      if (singletonSnap.exists() && Array.isArray(singletonSnap.data()?.data)) {
+        remoteStudents = mergeArraysById(remoteStudents, singletonSnap.data().data);
+      }
+    } catch (_) {}
   }
+
+  // Merge remote and local so newly created students in local or remote are NEVER lost
+  let combined = mergeArraysById(remoteStudents, localStudents);
+  if (deletedIds.length > 0) {
+    combined = combined.filter(s => !deletedIds.includes(String(s.id).toLowerCase()));
+  }
+
+  const cleanList = deduplicateAndSanitizeStudents(combined);
+
+  if (cleanList.length > 0) {
+    try {
+      localStorage.setItem('students', JSON.stringify(cleanList));
+    } catch (_) {}
+    return cleanList;
+  }
+
+  const raw = await getData('students', null);
+  if (raw && Array.isArray(raw) && raw.length > 0) {
+    return deduplicateAndSanitizeStudents(raw.filter(s => !deletedIds.includes(String(s.id).toLowerCase())));
+  }
+
   return [];
 };
 
 export const saveStudents = async (students: any) => {
   const cleanList = deduplicateAndSanitizeStudents(Array.isArray(students) ? students : []);
-  const res = await saveData('students', cleanList);
-  return res;
+
+  // Remove saved student IDs from deleted tombstone list if they were re-saved or edited
+  try {
+    const rawDeleted = localStorage.getItem('students_deleted');
+    if (rawDeleted) {
+      const deletedIds: string[] = JSON.parse(rawDeleted);
+      const savedIds = cleanList.map(s => String(s.id).toLowerCase());
+      const cleanedDeleted = deletedIds.filter(d => !savedIds.includes(d.toLowerCase()));
+      localStorage.setItem('students_deleted', JSON.stringify(cleanedDeleted));
+    }
+
+    localStorage.setItem('students', JSON.stringify(cleanList));
+    localStorage.setItem('students_lastSavedAt', String(Date.now()));
+  } catch (e) {
+    console.warn("Error caching students locally:", e);
+  }
+
+  // Dispatch UI update immediately with cleanList
+  window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'students', data: cleanList } }));
+
+  // Save ALL students permanently to Firebase Firestore collection and singleton
+  if (isFirebaseConfigured) {
+    try {
+      const savePromises = cleanList.map(item => {
+        if (item && item.id) {
+          return setDoc(doc(db, 'students', String(item.id)), {
+            ...item,
+            updatedAt: item.updatedAt || new Date().toISOString()
+          }, { merge: true });
+        }
+        return Promise.resolve();
+      });
+
+      // Also update singleton document in background
+      savePromises.push(
+        setDoc(doc(db, 'singletons', 'students'), {
+          data: cleanList,
+          updatedAt: Date.now()
+        }, { merge: false })
+      );
+
+      const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 5000));
+      await Promise.race([Promise.all(savePromises), timeoutPromise]);
+    } catch (fbErr: any) {
+      console.warn("Firebase saveStudents warning:", fbErr?.message || fbErr);
+    }
+  }
+
+  return cleanList;
 };
 
 export const deleteStudent = async (id: string | number) => {
   const targetId = String(id).trim().toLowerCase();
+
+  // Mark in tombstone so it won't be resurrected from stale local caches
+  try {
+    const rawDeleted = localStorage.getItem('students_deleted') || '[]';
+    const deletedIds: string[] = JSON.parse(rawDeleted);
+    if (!deletedIds.includes(targetId)) {
+      deletedIds.push(targetId);
+      localStorage.setItem('students_deleted', JSON.stringify(deletedIds.slice(-500)));
+    }
+  } catch (_) {}
+
   const currentStudents = await getStudents();
 
   // Strictly filter out only the exact student by ID
@@ -870,7 +1017,11 @@ export const deleteStudent = async (id: string | number) => {
     return sId !== targetId;
   });
 
-  await saveData('students', updatedStudents);
+  try {
+    localStorage.setItem('students', JSON.stringify(updatedStudents));
+  } catch (_) {}
+
+  window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'students', data: updatedStudents } }));
 
   try {
     const session = getUserSession();
@@ -885,21 +1036,27 @@ export const deleteStudent = async (id: string | number) => {
   if (isFirebaseConfigured) {
     try {
       await deleteDoc(doc(db, 'students', String(id)));
+      await setDoc(doc(db, 'singletons', 'students'), {
+        data: updatedStudents,
+        updatedAt: Date.now()
+      }, { merge: false });
     } catch (_) {}
   }
 
   return updatedStudents;
 };
 
-export const isZoomLinkExpired = (link: any, bufferHours = 2): boolean => {
+export const isZoomLinkExpired = (link: any, bufferHours = 8): boolean => {
   if (!link) return false;
+
+  const expiryMs = (bufferHours || 8) * 60 * 60 * 1000;
 
   // 1. If explicit datetime is provided (e.g. "2026-09-09T10:00:00" or "2026-09-09 10:00")
   if (link.datetime) {
     const classTime = new Date(link.datetime).getTime();
     if (!isNaN(classTime)) {
-      // Buffer: link remains accessible during class and up to bufferHours (default 2 hours) after scheduled time
-      const expiry = classTime + (bufferHours * 60 * 60 * 1000);
+      // Zoom link stays accessible during class and up to 8 hours after scheduled time
+      const expiry = classTime + expiryMs;
       return Date.now() > expiry;
     }
   }
@@ -910,9 +1067,15 @@ export const isZoomLinkExpired = (link: any, bufferHours = 2): boolean => {
     const combinedStr = `${link.date}T${timeStr.length === 5 ? timeStr : timeStr.padStart(5, '0')}`;
     const classTime = new Date(combinedStr).getTime();
     if (!isNaN(classTime)) {
-      const expiry = classTime + (bufferHours * 60 * 60 * 1000);
+      const expiry = classTime + expiryMs;
       return Date.now() > expiry;
     }
+  }
+
+  // 3. Fallback to creation or updated time: expires strictly 8 hours after it was created/posted
+  const createdTime = new Date(link.dateAdded || link.createdAt || link.updatedAt || 0).getTime();
+  if (!isNaN(createdTime) && createdTime > 0) {
+    return Date.now() > (createdTime + expiryMs);
   }
 
   return false;
@@ -922,11 +1085,11 @@ export const getZoomLinks = async () => {
   const rawLinks = await getData('zoomLinks', []);
   const links = Array.isArray(rawLinks) ? rawLinks : [];
 
-  // Filter out any links whose class ended more than 2 hours ago
-  const activeLinks = links.filter(l => !isZoomLinkExpired(l, 2));
-  const expiredLinks = links.filter(l => isZoomLinkExpired(l, 2));
+  // Filter out any links older than 8 hours
+  const activeLinks = links.filter(l => !isZoomLinkExpired(l, 8));
+  const expiredLinks = links.filter(l => isZoomLinkExpired(l, 8));
 
-  // Auto-delete expired Zoom links from database so they don't linger
+  // Auto-delete expired Zoom links from database after 8 hours so they don't linger
   if (expiredLinks.length > 0) {
     if (isFirebaseConfigured) {
       expiredLinks.forEach(exp => {
@@ -1085,71 +1248,275 @@ export const deleteCourse = async (id: string) => {
   return updated;
 };
 
-export const getCourseMaterials = async () => {
-  const raw = await getData('courseMaterials', []);
-  if (!Array.isArray(raw)) return [];
-  let changed = false;
-  const sanitized = raw.map(item => {
-    if (!item) return item;
-    let itemChanged = false;
-    let subject = item.subject;
-    if (typeof subject === 'string' && subject.trim().toLowerCase() === 'tamil') {
-      subject = 'தமிழ்';
-      itemChanged = true;
-    }
-    let subjects = item.subjects;
-    if (Array.isArray(subjects)) {
-      const cleanSubs = sanitizeSubjectList(subjects);
-      if (JSON.stringify(cleanSubs) !== JSON.stringify(subjects)) {
-        subjects = cleanSubs;
-        itemChanged = true;
-      }
-    }
-    if (itemChanged) {
-      changed = true;
-      return { ...item, subject, subjects };
-    }
-    return item;
-  });
-  if (changed) {
-    saveData('courseMaterials', sanitized).catch(() => {});
-  }
-  return sanitized;
-};
-export const saveCourseMaterials = (materials: any) => saveData('courseMaterials', materials);
+export const getCourseMaterials = async (): Promise<any[]> => {
+  setupRealtimeListener('courseMaterials');
 
-export const getYoutubeLinks = async () => {
-  const links = await getData('youtubeLinks', []);
-  if (!Array.isArray(links)) return [];
-  let changed = false;
-  const sanitized = links.map(item => {
+  let deletedIds: string[] = [];
+  try {
+    const rawDeleted = localStorage.getItem('courseMaterials_deleted');
+    if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
+  } catch (_) {}
+
+  let localMaterials: any[] = [];
+  try {
+    const rawLocal = localStorage.getItem('courseMaterials');
+    if (rawLocal) localMaterials = JSON.parse(rawLocal);
+  } catch (_) {}
+
+  let remoteMaterials: any[] = [];
+  if (isFirebaseConfigured) {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'courseMaterials'));
+      if (!querySnapshot.empty) {
+        remoteMaterials = querySnapshot.docs.map(docSnap => ({ ...docSnap.data(), id: docSnap.id }));
+      }
+    } catch (_) {}
+
+    try {
+      const singletonSnap = await getDoc(doc(db, 'singletons', 'courseMaterials'));
+      if (singletonSnap.exists() && Array.isArray(singletonSnap.data()?.data)) {
+        remoteMaterials = mergeArraysById(remoteMaterials, singletonSnap.data().data);
+      }
+    } catch (_) {}
+  }
+
+  let combined = mergeArraysById(remoteMaterials, localMaterials);
+  if (deletedIds.length > 0) {
+    combined = combined.filter(m => !deletedIds.includes(String(m.id)));
+  }
+
+  if (combined.length === 0) {
+    const raw = await getData('courseMaterials', []);
+    if (Array.isArray(raw) && raw.length > 0) {
+      combined = raw.filter(m => !deletedIds.includes(String(m.id)));
+    }
+  }
+
+  const sanitized = combined.map(item => {
     if (!item) return item;
-    let itemChanged = false;
     let subject = item.subject;
     if (typeof subject === 'string' && subject.trim().toLowerCase() === 'tamil') {
       subject = 'தமிழ்';
-      itemChanged = true;
     }
     let subjects = item.subjects;
     if (Array.isArray(subjects)) {
-      const cleanSubs = sanitizeSubjectList(subjects);
-      if (JSON.stringify(cleanSubs) !== JSON.stringify(subjects)) {
-        subjects = cleanSubs;
-        itemChanged = true;
-      }
+      subjects = sanitizeSubjectList(subjects);
     }
-    if (itemChanged) {
-      changed = true;
-      return { ...item, subject, subjects };
-    }
-    return item;
+    return { ...item, subject, subjects };
   });
-  if (changed) {
-    saveData('youtubeLinks', sanitized).catch(() => {});
-  }
+
+  try {
+    localStorage.setItem('courseMaterials', JSON.stringify(sanitized));
+  } catch (_) {}
+
   return sanitized;
 };
-export const saveYoutubeLinks = (links: any) => saveData('youtubeLinks', links);
+
+export const saveCourseMaterials = async (materials: any) => {
+  const cleanList = Array.isArray(materials) ? materials : [];
+
+  try {
+    const rawDeleted = localStorage.getItem('courseMaterials_deleted');
+    if (rawDeleted) {
+      const deletedIds: string[] = JSON.parse(rawDeleted);
+      const savedIds = cleanList.map(s => String(s.id));
+      const cleanedDeleted = deletedIds.filter(d => !savedIds.includes(d));
+      localStorage.setItem('courseMaterials_deleted', JSON.stringify(cleanedDeleted));
+    }
+
+    localStorage.setItem('courseMaterials', JSON.stringify(cleanList));
+    localStorage.setItem('courseMaterials_lastSavedAt', String(Date.now()));
+  } catch (e) {
+    console.warn("Error caching courseMaterials locally:", e);
+  }
+
+  window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'courseMaterials', data: cleanList } }));
+
+  if (isFirebaseConfigured) {
+    try {
+      const savePromises = cleanList.map(item => {
+        if (item && item.id) {
+          return setDoc(doc(db, 'courseMaterials', String(item.id)), {
+            ...item,
+            updatedAt: item.updatedAt || new Date().toISOString()
+          }, { merge: true });
+        }
+        return Promise.resolve();
+      });
+
+      savePromises.push(
+        setDoc(doc(db, 'singletons', 'courseMaterials'), {
+          data: cleanList,
+          updatedAt: Date.now()
+        }, { merge: false })
+      );
+
+      await Promise.race([Promise.all(savePromises), new Promise(res => setTimeout(res, 4000))]);
+    } catch (e) {
+      console.warn("Firebase saveCourseMaterials error:", e);
+    }
+  }
+
+  return cleanList;
+};
+
+export const deleteCourseMaterial = async (id: string | number) => {
+  const targetId = String(id);
+  try {
+    const rawDeleted = localStorage.getItem('courseMaterials_deleted') || '[]';
+    const deletedIds: string[] = JSON.parse(rawDeleted);
+    if (!deletedIds.includes(targetId)) {
+      deletedIds.push(targetId);
+      localStorage.setItem('courseMaterials_deleted', JSON.stringify(deletedIds.slice(-300)));
+    }
+  } catch (_) {}
+
+  const current = await getCourseMaterials();
+  const updated = current.filter(m => String(m.id) !== targetId);
+  await saveCourseMaterials(updated);
+
+  if (isFirebaseConfigured) {
+    try {
+      await deleteDoc(doc(db, 'courseMaterials', targetId));
+    } catch (_) {}
+  }
+  return updated;
+};
+
+export const getYoutubeLinks = async (): Promise<any[]> => {
+  setupRealtimeListener('youtubeLinks');
+
+  let deletedIds: string[] = [];
+  try {
+    const rawDeleted = localStorage.getItem('youtubeLinks_deleted');
+    if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
+  } catch (_) {}
+
+  let localLinks: any[] = [];
+  try {
+    const rawLocal = localStorage.getItem('youtubeLinks');
+    if (rawLocal) localLinks = JSON.parse(rawLocal);
+  } catch (_) {}
+
+  let remoteLinks: any[] = [];
+  if (isFirebaseConfigured) {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'youtubeLinks'));
+      if (!querySnapshot.empty) {
+        remoteLinks = querySnapshot.docs.map(docSnap => ({ ...docSnap.data(), id: docSnap.id }));
+      }
+    } catch (_) {}
+
+    try {
+      const singletonSnap = await getDoc(doc(db, 'singletons', 'youtubeLinks'));
+      if (singletonSnap.exists() && Array.isArray(singletonSnap.data()?.data)) {
+        remoteLinks = mergeArraysById(remoteLinks, singletonSnap.data().data);
+      }
+    } catch (_) {}
+  }
+
+  let combined = mergeArraysById(remoteLinks, localLinks);
+  if (deletedIds.length > 0) {
+    combined = combined.filter(m => !deletedIds.includes(String(m.id)));
+  }
+
+  if (combined.length === 0) {
+    const raw = await getData('youtubeLinks', []);
+    if (Array.isArray(raw) && raw.length > 0) {
+      combined = raw.filter(m => !deletedIds.includes(String(m.id)));
+    }
+  }
+
+  const sanitized = combined.map(item => {
+    if (!item) return item;
+    let subject = item.subject;
+    if (typeof subject === 'string' && subject.trim().toLowerCase() === 'tamil') {
+      subject = 'தமிழ்';
+    }
+    let subjects = item.subjects;
+    if (Array.isArray(subjects)) {
+      subjects = sanitizeSubjectList(subjects);
+    }
+    return { ...item, subject, subjects };
+  });
+
+  try {
+    localStorage.setItem('youtubeLinks', JSON.stringify(sanitized));
+  } catch (_) {}
+
+  return sanitized;
+};
+
+export const saveYoutubeLinks = async (links: any) => {
+  const cleanList = Array.isArray(links) ? links : [];
+
+  try {
+    const rawDeleted = localStorage.getItem('youtubeLinks_deleted');
+    if (rawDeleted) {
+      const deletedIds: string[] = JSON.parse(rawDeleted);
+      const savedIds = cleanList.map(s => String(s.id));
+      const cleanedDeleted = deletedIds.filter(d => !savedIds.includes(d));
+      localStorage.setItem('youtubeLinks_deleted', JSON.stringify(cleanedDeleted));
+    }
+
+    localStorage.setItem('youtubeLinks', JSON.stringify(cleanList));
+    localStorage.setItem('youtubeLinks_lastSavedAt', String(Date.now()));
+  } catch (e) {
+    console.warn("Error caching youtubeLinks locally:", e);
+  }
+
+  window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'youtubeLinks', data: cleanList } }));
+
+  if (isFirebaseConfigured) {
+    try {
+      const savePromises = cleanList.map(item => {
+        if (item && item.id) {
+          return setDoc(doc(db, 'youtubeLinks', String(item.id)), {
+            ...item,
+            updatedAt: item.updatedAt || new Date().toISOString()
+          }, { merge: true });
+        }
+        return Promise.resolve();
+      });
+
+      savePromises.push(
+        setDoc(doc(db, 'singletons', 'youtubeLinks'), {
+          data: cleanList,
+          updatedAt: Date.now()
+        }, { merge: false })
+      );
+
+      await Promise.race([Promise.all(savePromises), new Promise(res => setTimeout(res, 4000))]);
+    } catch (e) {
+      console.warn("Firebase saveYoutubeLinks error:", e);
+    }
+  }
+
+  return cleanList;
+};
+
+export const deleteYoutubeLink = async (id: string | number) => {
+  const targetId = String(id);
+  try {
+    const rawDeleted = localStorage.getItem('youtubeLinks_deleted') || '[]';
+    const deletedIds: string[] = JSON.parse(rawDeleted);
+    if (!deletedIds.includes(targetId)) {
+      deletedIds.push(targetId);
+      localStorage.setItem('youtubeLinks_deleted', JSON.stringify(deletedIds.slice(-300)));
+    }
+  } catch (_) {}
+
+  const current = await getYoutubeLinks();
+  const updated = current.filter(m => String(m.id) !== targetId);
+  await saveYoutubeLinks(updated);
+
+  if (isFirebaseConfigured) {
+    try {
+      await deleteDoc(doc(db, 'youtubeLinks', targetId));
+    } catch (_) {}
+  }
+  return updated;
+};
 
 export const getFees = () => getData('fees', []);
 export const saveFees = (fees: any) => saveData('fees', fees);

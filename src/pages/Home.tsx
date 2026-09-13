@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { signInWithGoogle, auth } from "../lib/firebase";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
-import { GraduationCap, Globe, LogIn, Mail, Shield, MessageCircle, Users, Play, Facebook, Twitter, Instagram, Apple, PlayCircle, Award, BookOpen, Home as HomeIcon, Video, UserPlus, Phone, ChevronLeft, ChevronRight, X, Menu, Megaphone, Pin, ExternalLink, Calendar, Copy, Check, Link2 } from "lucide-react";
+import { GraduationCap, Globe, LogIn, Mail, Shield, MessageCircle, Users, Play, Facebook, Twitter, Instagram, Apple, PlayCircle, Award, BookOpen, Home as HomeIcon, Video, UserPlus, Phone, ChevronLeft, ChevronRight, X, Menu, Megaphone, Pin, ExternalLink, Calendar, Copy, Check } from "lucide-react";
 import { getStudents, getStaffs, getAdminSettings, getPasswordRequests, savePasswordRequests, getAnnouncements, saveStudents, saveStaffs, getHomePageContent } from "../lib/db";
 import { getUserSession, saveUserSession } from "../lib/authSession";
 import { motion, AnimatePresence } from "motion/react";
@@ -55,37 +55,6 @@ export default function Home() {
     username: '',
     submitted: false
   });
-  const [copiedSchoolLink, setCopiedSchoolLink] = useState(false);
-  const [showCopyToast, setShowCopyToast] = useState(false);
-
-  const handleCopySchoolUrl = async (e?: React.MouseEvent) => {
-    if (e) {
-      e.stopPropagation();
-    }
-    const schoolUrl = "https://app-agaramdhines-lk.vercel.app/";
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(schoolUrl);
-      } else {
-        const textArea = document.createElement("textarea");
-        textArea.value = schoolUrl;
-        textArea.style.position = "fixed";
-        textArea.style.left = "-999999px";
-        textArea.style.top = "-999999px";
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        document.execCommand('copy');
-        textArea.remove();
-      }
-      setCopiedSchoolLink(true);
-      setShowCopyToast(true);
-      setTimeout(() => setCopiedSchoolLink(false), 2500);
-      setTimeout(() => setShowCopyToast(false), 3500);
-    } catch (err) {
-      console.error("Failed to copy link:", err);
-    }
-  };
   
   const defaultSlides = [
     {
@@ -1184,7 +1153,7 @@ export default function Home() {
         </div>
       </footer>
 
-      {/* Contact & Share Floating Buttons (Left Side: WhatsApp + Copy Link) */}
+      {/* Contact Floating Button (Left Side: WhatsApp) */}
       <div className="fixed bottom-6 left-6 z-50 flex items-center gap-2.5">
         <motion.a 
           whileHover={{ scale: 1.05 }}
@@ -1198,56 +1167,7 @@ export default function Home() {
           <Phone size={20} className="sm:w-5 sm:h-5" />
           <span className="text-sm sm:text-base">WhatsApp</span>
         </motion.a>
-
-        <motion.button 
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={handleCopySchoolUrl}
-          type="button"
-          className={`px-4 sm:px-4.5 py-3 rounded-full shadow-lg flex items-center justify-center gap-2 font-bold transition-all border text-sm sm:text-base cursor-pointer ${
-            copiedSchoolLink 
-              ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-500/20' 
-              : 'bg-slate-900/90 hover:bg-slate-900 text-white border-slate-700 backdrop-blur-md hover:border-slate-600'
-          }`}
-          title="Copy School Website Link"
-        >
-          {copiedSchoolLink ? (
-            <>
-              <Check size={18} className="text-emerald-300" />
-              <span>Copied!</span>
-            </>
-          ) : (
-            <>
-              <Link2 size={18} className="text-indigo-300" />
-              <span>Copy Link</span>
-            </>
-          )}
-        </motion.button>
       </div>
-
-      {/* Small Toast Notification */}
-      <AnimatePresence>
-        {showCopyToast && (
-          <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 15, scale: 0.95 }}
-            transition={{ duration: 0.2 }}
-            className="fixed bottom-22 left-6 z-50 bg-slate-900/95 backdrop-blur-md text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-2xl shadow-xl border border-slate-700/80 flex items-center gap-2.5"
-          >
-            <div className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-              <Check size={14} className="stroke-[3]" />
-            </div>
-            <span>School link copied to clipboard!</span>
-            <button 
-              onClick={() => setShowCopyToast(false)} 
-              className="text-slate-400 hover:text-white ml-1 p-0.5"
-            >
-              <X size={14} />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Chatbot (Right Side) */}
       <Chatbot />
