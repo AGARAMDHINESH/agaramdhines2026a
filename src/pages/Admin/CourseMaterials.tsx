@@ -3,7 +3,7 @@ import { getCourseMaterials, saveCourseMaterials, getClasses, getStaffs, getSubj
 import { 
   GRADES_LIST, GRADE_COLOR_CONFIG, normalizeGradeString, doesItemMatchGrade 
 } from '../../components/RecordingSection';
-import { BookOpen, Plus, Trash2, ArrowLeft, ExternalLink, ChevronDown, LayoutGrid, Folder, Globe, Save, Edit3, FileText, Download, Check, RefreshCw, Search, Star, Sparkles, Filter, Layers, GraduationCap, UploadCloud, Link2, Youtube } from 'lucide-react';
+import { BookOpen, Plus, Trash2, ArrowLeft, ExternalLink, ChevronDown, LayoutGrid, Folder, Globe, Save, Edit3, FileText, Download, Check, RefreshCw, Search, Star, Sparkles, Filter, Layers, GraduationCap, UploadCloud, Link2, Youtube, CheckCircle2 } from 'lucide-react';
 import { uploadFileToFirebaseStorage } from '../../lib/firebase';
 
 const GRADES = [
@@ -131,6 +131,8 @@ export default function CourseMaterials() {
   const [selectedGrades, setSelectedGrades] = useState<string[]>([]);
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [customSubjectInput, setCustomSubjectInput] = useState<string>('');
+  const [pdfUploadPercent, setPdfUploadPercent] = useState<number>(0);
+  const [lastUploadedPdfFile, setLastUploadedPdfFile] = useState<{ name: string; size: string } | null>(null);
 
   const [formData, setFormData] = useState({
     grade: '',
@@ -155,16 +157,22 @@ export default function CourseMaterials() {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       setIsUploadingPdf(true);
+      setPdfUploadPercent(15);
       try {
         const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const path = `course-materials/${Date.now()}_${cleanName}`;
-        const downloadUrl = await uploadFileToFirebaseStorage(file, path);
+        const downloadUrl = await uploadFileToFirebaseStorage(file, path, (pct) => {
+          setPdfUploadPercent(pct);
+        });
         setFormData(prev => ({
           ...prev,
           link: downloadUrl,
           title: prev.title || file.name.replace(/\.[^/.]+$/, "")
         }));
-        alert("PDF கோப்பு Firebase Storage-ல் வெற்றிகரமாகப் பதிவேற்றப்பட்டது!");
+        setLastUploadedPdfFile({
+          name: file.name,
+          size: (file.size / (1024 * 1024)).toFixed(2) + " MB"
+        });
       } catch (err: any) {
         alert("பதிவேற்றுவதில் பிழை: " + (err?.message || err));
       } finally {
@@ -708,9 +716,9 @@ export default function CourseMaterials() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-sm font-bold text-slate-700">Google Drive Link / PDF URL</label>
-                <label className="cursor-pointer text-xs font-bold text-red-600 hover:text-red-700 flex items-center gap-1.5 bg-red-50 hover:bg-red-100 px-3 py-1 rounded-xl transition-all border border-red-200 shadow-sm">
+                <label className="cursor-pointer text-xs font-bold text-red-600 hover:text-red-700 flex items-center gap-1.5 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-xl transition-all border border-red-200 shadow-sm">
                   <UploadCloud size={14} />
-                  <span>{isUploadingPdf ? "Firebase-ல் பதிவேற்றப்படுகிறது..." : "கணினியிலிருந்து PDF பதிவேற்றுக (Firebase)"}</span>
+                  <span>{isUploadingPdf ? "பதிவேற்றப்படுகிறது..." : "கணினியிலிருந்து PDF பதிவேற்றுக"}</span>
                   <input 
                     type="file" 
                     accept=".pdf,.doc,.docx" 
@@ -720,6 +728,36 @@ export default function CourseMaterials() {
                   />
                 </label>
               </div>
+
+              {/* Upload Progress Bar */}
+              {isUploadingPdf && (
+                <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl space-y-1.5">
+                  <div className="flex justify-between text-xs font-bold text-red-900">
+                    <span>PDF கிளவுடில் பாதுகாப்பாகப் பதிவேற்றப்படுகிறது...</span>
+                    <span>{pdfUploadPercent}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-red-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-red-600 transition-all duration-300 rounded-full"
+                      style={{ width: `${pdfUploadPercent}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Upload Success Banner */}
+              {lastUploadedPdfFile && !isUploadingPdf && (
+                <div className="mb-3 p-3 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between text-xs font-bold text-emerald-900">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                    <span>✓ PDF கோப்பு முழுமையாகப் பதிவேற்றப்பட்டது ({lastUploadedPdfFile.name} - {lastUploadedPdfFile.size})</span>
+                  </div>
+                  <span className="text-[10px] bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-md">
+                    இணைக்கப்பட்டது ✓
+                  </span>
+                </div>
+              )}
+
               <input
                 type="url"
                 required

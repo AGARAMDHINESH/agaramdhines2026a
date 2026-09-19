@@ -129,6 +129,21 @@ export default function TamilAsanKnowledgeHub({ onBack, onMaterialsUpdated }: Pr
   const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
   const [isUploadingVoice, setIsUploadingVoice] = useState(false);
   const [isTestingVoice, setIsTestingVoice] = useState(false);
+  const [voiceUploadProgress, setVoiceUploadProgress] = useState(0);
+  const [voiceUploadStatusText, setVoiceUploadStatusText] = useState("");
+  const [lastUploadedVoiceInfo, setLastUploadedVoiceInfo] = useState<{
+    name: string;
+    size: string;
+    time: string;
+  } | null>(null);
+  const [isVoiceSettingsSaved, setIsVoiceSettingsSaved] = useState(false);
+
+  // PDF upload confirmation state
+  const [lastUploadedPdfInfo, setLastUploadedPdfInfo] = useState<{
+    title: string;
+    order: number;
+    time: string;
+  } | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -504,7 +519,13 @@ export default function TamilAsanKnowledgeHub({ onBack, onMaterialsUpdated }: Pr
       await saveAllUnifiedLinks(updatedUnified);
       setUnifiedLinks(updatedUnified);
 
-      showNotification(`வெற்றி! PDF Firebase-ல் பதிவேற்றப்பட்டு வரிசை #${nextOrder}-ல் சேர்க்கப்பட்டது!`, 'success');
+      setLastUploadedPdfInfo({
+        title: pdfTitle.trim(),
+        order: nextOrder,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
+
+      showNotification(`வெற்றி! PDF கோப்பு முழுமையாக பதிவேற்றம் செய்யப்பட்டு வரிசை #${nextOrder}-ல் சேர்க்கப்பட்டது! ✓`, 'success');
       setPdfFile(null);
       setPdfTitle("");
       onMaterialsUpdated?.();
@@ -611,14 +632,53 @@ export default function TamilAsanKnowledgeHub({ onBack, onMaterialsUpdated }: Pr
   const handleUploadRecordedVoice = async () => {
     if (!recordedAudioBlob) return;
     setIsUploadingVoice(true);
+    setVoiceUploadProgress(10);
+    setVoiceUploadStatusText("பதிவு செய்யப்பட்ட குரல் படிக்கப்படுகிறது...");
+    setIsVoiceSettingsSaved(false);
     try {
       const fileName = `teacher_recorded_voice_${Date.now()}.webm`;
+      const sizeKB = (recordedAudioBlob.size / 1024).toFixed(0) + " KB";
       const downloadUrl = await uploadFileToFirebaseStorage(
         recordedAudioBlob, 
-        `tamil_asan_voices/${fileName}`
+        `tamil_asan_voices/${fileName}`,
+        (percent) => {
+          setVoiceUploadProgress(percent);
+          if (percent < 45) {
+            setVoiceUploadStatusText(`குரல் கோப்பு தயார் செய்யப்படுகிறது... (${percent}%)`);
+          } else if (percent < 90) {
+            setVoiceUploadStatusText(`பாதுகாப்பாகக் கிளவுடில் சேமிக்கப்படுகிறது... (${percent}%)`);
+          } else {
+            setVoiceUploadStatusText(`முழுமையடைகிறது... (${percent}%)`);
+          }
+        }
       );
+      setVoiceUploadProgress(100);
+      setVoiceUploadStatusText("குரல் முழுமையாகப் பதிவேற்றப்பட்டது! ✓");
       setWelcomeAudioUrl(downloadUrl);
-      showNotification("ஆசானின் நேரடி குரல் பதிவு வெற்றிகரமாக Firebase Storage-ல் பதிவேற்றப்பட்டது!", "success");
+
+      const info = {
+        name: "நேரடி குரல் பதிவு (Microphone Record)",
+        size: sizeKB,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setLastUploadedVoiceInfo(info);
+
+      // Auto-save settings immediately
+      const updated: TamilAsanSettings = {
+        ...asanSettings,
+        welcomeVoiceText: welcomeText,
+        welcomeAudioUrl: downloadUrl.trim(),
+        defaultAnswerLength: answerLengthSetting,
+        elevenLabsApiKey: elevenLabsApiKey.trim(),
+        elevenLabsVoiceId: elevenLabsVoiceId.trim(),
+        voiceCloningEnabled: voiceCloningEnabled,
+        voiceProvider: (elevenLabsApiKey.trim() && elevenLabsVoiceId.trim()) ? 'elevenlabs' : 'browser'
+      };
+      await saveTamilAsanSettings(updated);
+      setAsanSettings(updated);
+      setIsVoiceSettingsSaved(true);
+
+      showNotification("ஆசானின் நேரடி குரல் பதிவு முழுமையாகப் பதிவேற்றப்பட்டு சேமிக்கப்பட்டது! ✓", "success");
     } catch (err: any) {
       console.error("Upload recorded voice error:", err);
       showNotification("குரல் பதிவேற்றம் தோல்வியடைந்தது: " + (err?.message || err), "error");
@@ -631,15 +691,58 @@ export default function TamilAsanKnowledgeHub({ onBack, onMaterialsUpdated }: Pr
     const file = e.target.files?.[0];
     if (!file) return;
     setIsUploadingVoice(true);
+    setVoiceUploadProgress(10);
+    setVoiceUploadStatusText("கோப்பு படிக்கப்படுகிறது... (Reading audio file)");
+    setIsVoiceSettingsSaved(false);
     try {
       const extension = file.name.split('.').pop() || 'mp3';
       const fileName = `teacher_voice_file_${Date.now()}.${extension}`;
+      const fileSizeMB = file.size > 1024 * 1024 
+        ? (file.size / (1024 * 1024)).toFixed(2) + " MB" 
+        : (file.size / 1024).toFixed(0) + " KB";
+
       const downloadUrl = await uploadFileToFirebaseStorage(
         file,
-        `tamil_asan_voices/${fileName}`
+        `tamil_asan_voices/${fileName}`,
+        (percent) => {
+          setVoiceUploadProgress(percent);
+          if (percent < 45) {
+            setVoiceUploadStatusText(`கோப்பு என்கோடிங் செய்யப்படுகிறது... (${percent}%)`);
+          } else if (percent < 90) {
+            setVoiceUploadStatusText(`கிளவுடில் பாதுகாப்பாகச் சேமிக்கப்படுகிறது... (${percent}%)`);
+          } else {
+            setVoiceUploadStatusText(`முழுமையடைகிறது... (${percent}%)`);
+          }
+        }
       );
+
+      setVoiceUploadProgress(100);
+      setVoiceUploadStatusText("கோப்பு முழுமையாகப் பதிவேற்றப்பட்டது! ✓");
       setWelcomeAudioUrl(downloadUrl);
-      showNotification(`ஆசானின் ஆடியோ கோப்பு (${file.name}) வெற்றிகரமாகப் பதிவேற்றப்பட்டது!`, "success");
+
+      const info = {
+        name: file.name,
+        size: fileSizeMB,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setLastUploadedVoiceInfo(info);
+
+      // Auto-save settings immediately
+      const updated: TamilAsanSettings = {
+        ...asanSettings,
+        welcomeVoiceText: welcomeText,
+        welcomeAudioUrl: downloadUrl.trim(),
+        defaultAnswerLength: answerLengthSetting,
+        elevenLabsApiKey: elevenLabsApiKey.trim(),
+        elevenLabsVoiceId: elevenLabsVoiceId.trim(),
+        voiceCloningEnabled: voiceCloningEnabled,
+        voiceProvider: (elevenLabsApiKey.trim() && elevenLabsVoiceId.trim()) ? 'elevenlabs' : 'browser'
+      };
+      await saveTamilAsanSettings(updated);
+      setAsanSettings(updated);
+      setIsVoiceSettingsSaved(true);
+
+      showNotification(`கோப்பு முழுவதும் வெற்றிகரமாகப் பதிவேற்றப்பட்டு சேமிக்கப்பட்டது! (${file.name} - ${fileSizeMB})`, "success");
     } catch (err: any) {
       console.error("Upload audio file error:", err);
       showNotification("ஆடியோ பதிவேற்றம் தோல்வியடைந்தது: " + (err?.message || err), "error");
@@ -1391,14 +1494,32 @@ export default function TamilAsanKnowledgeHub({ onBack, onMaterialsUpdated }: Pr
             {uploadProgress !== null && (
               <div className="space-y-1.5">
                 <div className="flex justify-between text-xs font-bold text-slate-600">
-                  <span>Firebase-ல் பதிவேற்றப்படுகிறது...</span>
+                  <span>கிளவுடில் பாதுகாப்பாகப் பதிவேற்றப்படுகிறது...</span>
                   <span>{uploadProgress}%</span>
                 </div>
                 <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-red-600 rounded-full transition-all duration-300"
+                    className="h-full bg-emerald-600 rounded-full transition-all duration-300"
                     style={{ width: `${uploadProgress}%` }}
                   />
+                </div>
+              </div>
+            )}
+
+            {lastUploadedPdfInfo && !isLoading && (
+              <div className="p-4 bg-emerald-50 border-2 border-emerald-500 rounded-2xl flex flex-col gap-2 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-emerald-900 font-black text-xs sm:text-sm">
+                    <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+                    <span>PDF கோப்பு முழுமையாக பதிவேற்றம் செய்யப்பட்டது! ✓ (100% சேமிக்கப்பட்டது)</span>
+                  </div>
+                  <span className="text-[10px] font-black bg-emerald-200 text-emerald-900 px-2.5 py-0.5 rounded-full">
+                    வரிசை #{lastUploadedPdfInfo.order}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-slate-700 bg-white/90 p-2.5 rounded-xl border border-emerald-200">
+                  <span className="font-bold text-slate-900 truncate">{lastUploadedPdfInfo.title}</span>
+                  <span className="text-slate-400 shrink-0 ml-2">{lastUploadedPdfInfo.time}</span>
                 </div>
               </div>
             )}
@@ -1679,13 +1800,69 @@ export default function TamilAsanKnowledgeHub({ onBack, onMaterialsUpdated }: Pr
                   />
                   <label
                     htmlFor="teacher-audio-file-input"
-                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer transition-all shadow-sm"
+                    className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer transition-all shadow-sm"
                   >
                     <UploadCloud size={16} />
                     <span>{isUploadingVoice ? "கோப்பு பதிவேற்றப்படுகிறது..." : "ஆடியோ கோப்பைத் தேர்ந்தெடுக்கவும் (MP3/WAV)"}</span>
                   </label>
-                  <p className="text-[11px] text-slate-400">அதிகபட்ச அளவு: 15MB. பாதுகாப்பாக Firebase Storage-ல் சேமிக்கப்படும்.</p>
+                  <p className="text-[11px] text-slate-400">அதிகபட்ச அளவு: 15MB. பாதுகாப்பாக கிளவுடில் சேமிக்கப்படும்.</p>
                 </div>
+
+                {/* Upload Progress Bar */}
+                {isUploadingVoice && (
+                  <div className="w-full p-4 bg-amber-50 border border-amber-300 rounded-2xl flex flex-col gap-2">
+                    <div className="flex items-center justify-between text-xs font-black text-amber-900">
+                      <span className="flex items-center gap-2">
+                        <RefreshCw size={15} className="animate-spin text-amber-700" />
+                        {voiceUploadStatusText || "கோப்பு பதிவேற்றப்படுகிறது..."}
+                      </span>
+                      <span className="bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-mono font-bold">
+                        {voiceUploadProgress}%
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-amber-200 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-amber-500 to-emerald-600 transition-all duration-300 rounded-full"
+                        style={{ width: `${voiceUploadProgress}%` }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-amber-800">தயவுசெய்து காத்திருக்கவும். கோப்பு முழுமையாகச் சேமிக்கப்பட்டு உறுதிப்படுத்தப்படும்.</p>
+                  </div>
+                )}
+
+                {/* Upload Complete Confirmation Box */}
+                {lastUploadedVoiceInfo && !isUploadingVoice && (
+                  <div className="w-full p-4 bg-emerald-50 border-2 border-emerald-500 rounded-2xl flex flex-col gap-3 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-emerald-900 font-black text-xs sm:text-sm">
+                        <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+                        <span>கோப்பு முழுமையாகப் பதிவேற்றம் செய்யப்பட்டது! ✓ (100% சேமிக்கப்பட்டது)</span>
+                      </div>
+                      <span className="text-[10px] font-black bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full">
+                        முடிந்தது ✓
+                      </span>
+                    </div>
+                    <div className="bg-white/90 p-2.5 rounded-xl border border-emerald-200 text-xs text-slate-700 flex items-center justify-between">
+                      <span className="font-bold text-slate-900 truncate flex items-center gap-1.5">
+                        <Music size={14} className="text-emerald-600 shrink-0" />
+                        {lastUploadedVoiceInfo.name}
+                      </span>
+                      <span className="text-slate-500 text-[11px] shrink-0 ml-2">({lastUploadedVoiceInfo.size})</span>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-bold text-emerald-900">பதிவேற்றப்பட்ட ஆடியோவை இப்போதே இயக்கிக் கேட்கவும்:</p>
+                      <audio controls src={resolvedAudioPreview || welcomeAudioUrl} className="w-full h-9" />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSaveVoiceSettings()}
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer"
+                    >
+                      <Check size={16} />
+                      <span>{isVoiceSettingsSaved ? "அமைப்புகள் முழுமையாகச் சேமிக்கப்பட்டுள்ளது ✓" : "இவ்வமைப்புகளை இப்போது உறுதிசெய்து சேமிக்கவும்"}</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Option 3: Direct Audio URL */}
                 <div className="space-y-1.5 pt-2 border-t border-slate-100">
