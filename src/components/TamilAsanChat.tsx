@@ -280,12 +280,16 @@ export default function TamilAsanChat({
       }
     } catch (err: any) {
       console.error("Tamil Asan error:", err);
+      const isKeyProblem = err?.message?.includes("leaked") || err?.message?.includes("KEY") || err?.message?.includes("403");
+      const errText = isKeyProblem 
+        ? "அன்புச் செல்வமே, ஆசிரியரின் AI சேவையின் Gemini API Key Google அமைப்பினால் முடக்கப்பட்டுப் புதுப்பிக்கப்பட வேண்டியுள்ளது (Google Security: Leaked Key Blocked). அகாடமி ஆசிரியர் AI Studio Settings > Secrets-ல் புதிய Gemini API Key-ஐ உள்ளிட்டதும் இது உடனே இயங்கும். தற்போதைக்கு நமது பாடக்குறிப்புகள் அல்லது WhatsApp (0756452527) மூலம் சந்தேகம் கேட்கலாம்!"
+        : "மன்னிக்கவும் அன்புச் செல்வமே, தொழில்நுட்பக் கோளாறு காரணமாக விடை பெறுவதில் தாமதம் ஏற்பட்டுள்ளது. மீண்டும் ஒருமுறை கேட்கவும் அல்லது இணைய இணைப்பை சரிபார்க்கவும்.";
       setMessages(prev => [
         ...prev,
         {
           id: (Date.now() + 1).toString(),
           sender: "asan",
-          text: "மன்னிக்கவும் அன்புச் செல்வமே, தொழில்நுட்பக் கோளாறு காரணமாக விடை பெறுவதில் தாமதம் ஏற்பட்டுள்ளது. மீண்டும் ஒருமுறை கேட்கவும் அல்லது இணைய இணைப்பை சரிபார்க்கவும்.",
+          text: errText,
           timestamp: new Date()
         }
       ]);

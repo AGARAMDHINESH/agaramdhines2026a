@@ -272,13 +272,6 @@ export const askTamilAsan = async ({
   const effectiveLength = answerLength || asanSettings.defaultAnswerLength || 'concise';
   const { contextPrompt, sources } = await buildAcademyKnowledgeContext(grade, category);
 
-  const apiKey = (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) || (import.meta as any).env?.VITE_GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not configured.");
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
-
   const systemInstruction = `
 நீங்கள் "அகரம் தினேஸ் Online Academy"-ன் அன்புத் தமிழ் ஆசான் (Agaram Dhines Tamil Asan - தலைமை ஆசான் திரு. D. தினேஷ்குமார் அவர்களின் AI வடிவம்).
 மாணவர்களிடம் ChatGPT அல்லது Google Gemini போல மிக இயல்பாக, அன்பாக, ஆசிரியருக்கே உரிய பரிவுடன், இனிமையான தமிழில் உரையாட வேண்டும்.
@@ -324,8 +317,25 @@ ${asanSettings.systemPromptAddon || ''}
   const trimmedQ = question.trim().toLowerCase();
   const isGreeting = /^(வணக்கம்|வணக்கங்க|வணக்கம் சார்|வணக்கம் ஆசான்|வணக்கம் அண்ணா|வணக்கம் ஆசிரியரே|hi|hello|hey|vanakkam|good morning|good afternoon|good evening|நலமா|ஹலோ|ஹாய்)[!.,? ]*$/i.test(trimmedQ);
 
+  // Detect introductory doubt intent where student has not asked the specific question yet
+  const isDoubtIntro = /^(எனக்கு\s*)?(இலக்கணத்தில்\s*|தமிழில்\s*|பாடத்தில்\s*)?(ஒரு\s*)?(சந்தேகம்|ஐயம்|doubt)(\s*(உள்ளது|இருக்கு|கேட்கலாமா|வரலாமா|ஒன்று))?[!.,? ]*$/i.test(trimmedQ);
+
   // Detect questions about model Q&A or exercises
   const isModelQaQuery = /(மாதிரி வினா|வினா விடை|வினாவிடை|வினாத்தாள்|கேள்வி பதில்|பயிற்சி வினா|உள்ளதா|இருக்கிறதா|வினாக்கள்|பல்தேர்வு|mcq|குறுகிய வினா|கட்டுரை வினா)/i.test(trimmedQ);
+
+  // If student simply states "I have a doubt in grammar" without the actual question yet
+  if (isDoubtIntro) {
+    return {
+      answer: "வணக்கம் அன்புச் செல்வமே! தாராளமாகக் கேளுங்கள். இலக்கணத்தில் உங்களுக்கு என்ன சந்தேகம்?\n\n• எழுத்திலக்கணம் (எழுத்துக்கள், மாத்திரை வகைகள்)\n• சொல்லிலக்கணம் (பெயர், வினை, இடை, உரிச்சொல்)\n• தொடரிலக்கணம் / புணர்ச்சி விதிகள்\n• வேற்றுமை உருபுகள் & சந்திப் பிழைகள்\n\nஇதில் உங்களுக்கு எந்தப் பகுதியில் சந்தேகம் உள்ளதோ, அந்த வினாவைக் குறிப்பிடுங்கள். ஆசான் உங்களுக்கு எளிய உதாரணங்களுடன் தெளிவாக விளக்குகிறேன்!",
+      usedSources: sources.slice(0, 2),
+      suggestedFollowUps: [
+        "எழுத்திலக்கணம் என்றால் என்ன?",
+        "புணர்ச்சி விதிகளை விளக்குக",
+        "வேற்றுமை உருபுகள் யாவை?",
+        "பெயர்ச்சொல் மற்றும் வினைச்சொல் வேறுபாடு"
+      ]
+    };
+  }
 
   const parts: any[] = [];
 
@@ -379,16 +389,81 @@ ${effectiveLength === 'detailed'
     });
   }
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3.8-flash",
-    contents: { parts },
-    config: {
-      systemInstruction,
-      temperature: 0.3,
-    }
-  });
+  let rawAnswer = "";
 
-  const rawAnswer = response.text || "வணக்கம் அன்புச் செல்வமே, என்னால் தற்போது பதிலளிக்க இயலவில்லை. மீண்டும் ஒருமுறை கேட்கவும்.";
+  // 1. Try server-side API proxy first (Full-stack architecture)
+  try {
+    const apiRes = await fetch("/api/tamil-asan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        parts,
+        systemInstruction,
+        temperature: 0.3,
+        model: "gemini-3.8-flash"
+      })
+    });
+
+    if (apiRes.ok) {
+      const data = await apiRes.json();
+      rawAnswer = data.text || "";
+    } else {
+      const errData = await apiRes.json().catch(() => ({}));
+      if (errData.isLeakedKey || apiRes.status === 403) {
+        return {
+          answer: "வணக்கம் அன்புச் செல்வமே! ஆசிரியரின் AI சேவையின் Gemini API Key தற்காலிகமாகப் புதுப்பிக்கப்பட வேண்டியுள்ளது (Google Security: Leaked API Key Blocked).\n\nஅகாடமி ஆசிரியர் அல்லது நிர்வாகி AI Studio Settings > Secrets-ல் புதிய Gemini API Key-ஐ அமைத்தவுடன் இது தானாகவே இயங்கும்.\n\nதற்போதைக்கு நமது இணையதளத்தின் பாடக்குறிப்புகள் (Notes), YouTube வகுப்புகள் வழியே கற்கலாம் அல்லது ஆசிரியரை வாட்ஸ்அப் (0756452527) மூலம் தொடர்பு கொள்ளலாம்!",
+          usedSources: sources.slice(0, 2),
+          suggestedFollowUps: [
+            "பாடக்குறிப்புகள் பகுதிக்குச் செல்",
+            "வகுப்பு விபரங்கள் பார்க்க",
+            "WhatsApp-ல் ஆசானைத் தொடர்பு கொள்"
+          ]
+        };
+      }
+      throw new Error(errData.error || `Server error ${apiRes.status}`);
+    }
+  } catch (serverErr: any) {
+    console.warn("Server API call failed, trying client fallback:", serverErr);
+
+    // 2. Client-side fallback if key is available in browser env
+    const clientKey = (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) || (import.meta as any).env?.VITE_GEMINI_API_KEY;
+    if (clientKey) {
+      try {
+        const ai = new GoogleGenAI({ apiKey: clientKey });
+        const response = await ai.models.generateContent({
+          model: "gemini-3.8-flash",
+          contents: { parts },
+          config: {
+            systemInstruction,
+            temperature: 0.3,
+          }
+        });
+        rawAnswer = response.text || "";
+      } catch (clientErr: any) {
+        if (clientErr?.message?.includes("leaked") || clientErr?.status === 403) {
+          return {
+            answer: "வணக்கம் அன்புச் செல்வமே! Google AI பாதுகாப்பு கொள்கையின்படி Gemini API Key புதுப்பிக்கப்பட வேண்டியுள்ளது (API key leaked).\n\nஅகாடமி ஆசிரியர் AI Studio Settings > Secrets-ல் புதிய Gemini API Key-ஐ உள்ளிட்டதும் இது உடனே இயங்கும்.\n\nதற்போதைக்கு நமது அகாடமி பாடக்குறிப்புகள் வழியாகப் படிக்கலாம்!",
+            usedSources: sources.slice(0, 2),
+            suggestedFollowUps: [
+              "பாடக்குறிப்புகள் பதிவிறக்குக",
+              "வகுப்பு விபரங்கள் பார்க்க"
+            ]
+          };
+        }
+        throw clientErr;
+      }
+    } else {
+      // If no server and no client key
+      return {
+        answer: "வணக்கம் அன்புச் செல்வமே! ஆசிரியரின் AI சேவையை இயக்க Gemini API Key தேவைப்படுகிறது. அகாடமி நிர்வாகி AI Studio Settings > Secrets மெனுவில் 'GEMINI_API_KEY'-ஐ சேர்த்தவுடன் ஆசான் AI உங்களுக்கு உடனுக்குடன் விடையளிப்பார்!",
+        usedSources: sources.slice(0, 2),
+        suggestedFollowUps: [
+          "பாடக்குறிப்புகள் பகுதிக்குச் செல்",
+          "வகுப்பு விபரங்கள் பார்க்க"
+        ]
+      };
+    }
+  }
 
   // Clean any accidental markdown hashtags (#, ##, ###), reference lines and cleanup formatting
   const cleanAnswer = rawAnswer

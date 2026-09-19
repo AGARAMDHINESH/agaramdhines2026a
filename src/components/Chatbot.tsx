@@ -483,37 +483,59 @@ export default function Chatbot() {
 
       // Fallback to Gemini AI if no hardcoded response or if an image is uploaded
       if (!botReply) {
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-        if (!apiKey) {
-          botReply = 'மன்னிக்கவும், எனக்கு புரியவில்லை. கீழே உள்ள விருப்பங்களில் ஒன்றைத் தேர்ந்தெடுக்கவும் அல்லது எங்களை தொடர்பு கொள்ளவும்: 0756452527';
-          options = ['Grade 06', 'Grade 07', 'Grade 08', 'Grade 09', 'Grade 10', 'Grade 11', 'Fees', 'Contact'];
-        } else {
-          const ai = new GoogleGenAI({ apiKey });
-          const parts: any[] = [];
-          
-          if (imageFile && base64Data) {
-            parts.push({
-              inlineData: {
-                data: base64Data,
-                mimeType: mimeType
-              }
-            });
-          }
-          
-          if (text.trim()) {
-            parts.push({ text: text + " (You are a helpful assistant for Agaram Dhines Academy. Answer in Tamil or English based on the user's language. Keep it concise. Do not use markdown formatting like bold or italics if possible, just plain text.)" });
-          } else if (imageFile) {
-            parts.push({ text: "Please describe this image or answer based on it. (You are a helpful assistant for Agaram Dhines Academy. Answer in Tamil or English based on the user's language.)" });
-          }
+        const parts: any[] = [];
+        
+        if (imageFile && base64Data) {
+          parts.push({
+            inlineData: {
+              data: base64Data,
+              mimeType: mimeType
+            }
+          });
+        }
+        
+        if (text.trim()) {
+          parts.push({ text: text + " (You are a helpful assistant for Agaram Dhines Academy. Answer in Tamil or English based on the user's language. Keep it concise. Do not use markdown formatting like bold or italics if possible, just plain text.)" });
+        } else if (imageFile) {
+          parts.push({ text: "Please describe this image or answer based on it. (You are a helpful assistant for Agaram Dhines Academy. Answer in Tamil or English based on the user's language.)" });
+        }
 
-          const response = await ai.models.generateContent({
-            model: "gemini-3.1-flash-preview",
-            contents: { parts }
+        try {
+          const apiRes = await fetch("/api/tamil-asan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              parts,
+              model: "gemini-3.8-flash"
+            })
           });
 
-          botReply = response.text || "மன்னிக்கவும், எனக்கு புரியவில்லை.";
-          
-          options = MAIN_MENU_OPTIONS;
+          if (apiRes.ok) {
+            const data = await apiRes.json();
+            botReply = data.text || "வணக்கம், உங்களுக்கு மேலும் என்ன தகவல் வேண்டும்?";
+            options = MAIN_MENU_OPTIONS;
+          } else {
+            throw new Error("Server API call error");
+          }
+        } catch {
+          const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+          if (apiKey) {
+            try {
+              const ai = new GoogleGenAI({ apiKey });
+              const response = await ai.models.generateContent({
+                model: "gemini-3.8-flash",
+                contents: { parts }
+              });
+              botReply = response.text || "மன்னிக்கவும், எனக்கு புரியவில்லை.";
+              options = MAIN_MENU_OPTIONS;
+            } catch {
+              botReply = 'வணக்கம்! அகரம் தினேஸ் அகாடமிக்கு வரவேற்கிறோம். தங்களுக்கு எந்த வகுப்பிற்கான விபரம் வேண்டும் என்பதை கீழே தேர்ந்தெடுக்கவும் அல்லது எங்களை 0756452527 என்ற எண்ணில் தொடர்பு கொள்ளவும்.';
+              options = ['Grade 06', 'Grade 07', 'Grade 08', 'Grade 09', 'Grade 10', 'Grade 11', 'Fees', 'Contact'];
+            }
+          } else {
+            botReply = 'வணக்கம்! அகரம் தினேஸ் அகாடமிக்கு வரவேற்கிறோம். தங்களுக்கு எந்த வகுப்பிற்கான விபரம் வேண்டும் என்பதை கீழே தேர்ந்தெடுக்கவும் அல்லது எங்களை 0756452527 என்ற எண்ணில் தொடர்பு கொள்ளவும்.';
+            options = ['Grade 06', 'Grade 07', 'Grade 08', 'Grade 09', 'Grade 10', 'Grade 11', 'Fees', 'Contact'];
+          }
         }
       }
 
