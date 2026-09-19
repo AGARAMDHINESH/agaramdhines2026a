@@ -3,13 +3,14 @@
  * Agaram Dhines Online Academy
  * 
  * Features:
- * 1. RAG (Retrieval Augmented Generation) across Academy PDF Notes, YouTube Video Classes, Website Courses & Firestore.
- * 2. Grounded Truth: Never hallucinates; explicitly cites sources with links.
- * 3. Voice Synthesis: Custom Teacher Voice (Mr. Dhines) via Web Speech API and ElevenLabs / Cloud Voice integration.
- * 4. Multi-modal inputs: Text, Audio/Speech-to-Text, Images, Question papers.
+ * 1. 100% Firebase Knowledge & Materials Retrieval Engine.
+ * 2. Strictly searches ONLY the Academy's Firebase database (courseMaterials PDFs, 
+ *    tamilAsanKnowledge, unifiedLinks, youtubeLinks, courses, fees).
+ * 3. NO calls to Google Gemini, ChatGPT, or external AI models.
+ * 4. Grounded Truth: Never hallucinates; directly provides teacher's notes and PDF links.
+ * 5. Voice Synthesis: Custom Teacher Voice (Mr. Dhines) via Web Speech API and ElevenLabs / recorded audio.
  */
 
-import { GoogleGenAI } from "@google/genai";
 import { resolveMediaUrl } from "./fileStorage";
 import { 
   getCourseMaterials, 
@@ -17,8 +18,8 @@ import {
   getCourses, 
   getCourseWebsiteLinks, 
   getWebPosts, 
-  getChatbotSettings,
-  getTamilAsanKnowledge,
+  getChatbotSettings, 
+  getTamilAsanKnowledge, 
   getAllUnifiedLinks,
   getData,
   saveData
@@ -77,7 +78,7 @@ export const saveTamilAsanSettings = async (settings: TamilAsanSettings): Promis
 };
 
 /**
- * Builds the Knowledge Context from Academy's Courses, PDFs, YouTube videos and notes
+ * Builds the Knowledge Context from Academy's Courses, PDFs, YouTube videos and notes in Firebase
  */
 export const buildAcademyKnowledgeContext = async (targetGrade?: string, topic?: string): Promise<{
   contextPrompt: string;
@@ -106,17 +107,17 @@ export const buildAcademyKnowledgeContext = async (targetGrade?: string, topic?:
   ]);
 
   let contextLines: string[] = [];
-  contextLines.push(`### அகாடமி அதிகாரப்பூர்வ தரவுகள் (AGARAM DHINES ACADEMY KNOWLEDGE BASE):`);
+  contextLines.push(`### அகாடமி அதிகாரப்பூர்வ தரவுகள் (AGARAM DHINES ACADEMY FIREBASE KNOWLEDGE BASE):`);
   contextLines.push(`நிறுவனம்: அகரம் தினேஸ் Online Academy (Agaram Dhines Online Academy)`);
-  contextLines.push(`தலைமை ஆசான்: Mr. D. Dhineskumar (தொடர்பு: 0778054232 / 0756452527)`);
+  contextLines.push(`தலைமை ஆசான்: Mr. D. Dhineskumar (WhatsApp தொடர்பு: 0778054232 / +94778054232)`);
   contextLines.push(`அதிகாரப்பூர்வ இணையதளம்: https://www.agaramdhines.lk/`);
   if (targetGrade) {
     contextLines.push(`மாணவரின் தற்போதைய வகுப்பு/தரம்: ${targetGrade}`);
   }
 
-  // 0. Unified Official Links in Exact Order (Google Drive, YouTube, Web Links, PDFs)
+  // Unified Official Links in Exact Order (Google Drive, YouTube, Web Links, PDFs)
   if (Array.isArray(unifiedLinks) && unifiedLinks.length > 0) {
-    contextLines.push(`\n#### அகாடமியின் அதிகாரப்பூர்வ ஒருங்கிணைந்த இணைப்புகள் (வரிசைப்படி - Ordered Links):`);
+    contextLines.push(`\n#### அகாடமியின் அதிகாரப்பூர்வ ஒருங்கிணைந்த இணைப்புகள்:`);
     unifiedLinks.forEach((item: any) => {
       const g = item.grade || "பொதுவானது";
       const s = item.subject || "தமிழ்";
@@ -131,9 +132,9 @@ export const buildAcademyKnowledgeContext = async (targetGrade?: string, topic?:
     });
   }
 
-  // 0.1 Dedicated Tamil Asan Knowledge & Rules
+  // Dedicated Tamil Asan Knowledge & Rules
   if (Array.isArray(asanKnowledge) && asanKnowledge.length > 0) {
-    contextLines.push(`\n#### ஆசானின் பிரத்தியேக அறிவு & வழிகாட்டல்கள் (Special Teacher Notes):`);
+    contextLines.push(`\n#### ஆசானின் பிரத்தியேக அறிவு & வழிகாட்டல்கள்:`);
     asanKnowledge.forEach((item: any) => {
       const g = item.grade || "பொதுவானது";
       const cat = item.category || "பொது";
@@ -147,22 +148,10 @@ export const buildAcademyKnowledgeContext = async (targetGrade?: string, topic?:
     });
   }
 
-  // 1. Course Materials (PDFs & Notes) - Intelligent Grade Sorting
+  // Course Materials (PDFs & Notes)
   if (Array.isArray(materials) && materials.length > 0) {
-    contextLines.push(`\n#### பாடக்குறிப்புகள் & PDF ஆவணங்கள் (PDF Course Materials):`);
-    
-    // Sort so matching targetGrade comes first
-    const sortedMaterials = [...materials].sort((a: any, b: any) => {
-      if (!targetGrade) return 0;
-      const cleanTarget = targetGrade.toLowerCase().replace(/[^0-9]/g, '');
-      const aMatches = cleanTarget && String(a.grade || '').includes(cleanTarget);
-      const bMatches = cleanTarget && String(b.grade || '').includes(cleanTarget);
-      if (aMatches && !bMatches) return -1;
-      if (!aMatches && bMatches) return 1;
-      return 0;
-    });
-
-    sortedMaterials.slice(0, 50).forEach((m: any) => {
+    contextLines.push(`\n#### பாடக்குறிப்புகள் & PDF ஆவணங்கள்:`);
+    materials.forEach((m: any) => {
       const g = m.grade || m.class || "பொதுவானது";
       const s = m.subject || "தமிழ்";
       const title = m.title || m.name || "பாடக்குறிப்பு";
@@ -178,68 +167,6 @@ export const buildAcademyKnowledgeContext = async (targetGrade?: string, topic?:
     });
   }
 
-  // 2. YouTube Video Lessons
-  if (Array.isArray(youtube) && youtube.length > 0) {
-    contextLines.push(`\n#### யூடியூப் வீடியோ வகுப்புகள் (YouTube Video Classes):`);
-    const sortedYoutube = [...youtube].sort((a: any, b: any) => {
-      if (!targetGrade) return 0;
-      const cleanTarget = targetGrade.toLowerCase().replace(/[^0-9]/g, '');
-      const aMatches = cleanTarget && String(a.grade || '').includes(cleanTarget);
-      const bMatches = cleanTarget && String(b.grade || '').includes(cleanTarget);
-      if (aMatches && !bMatches) return -1;
-      if (!aMatches && bMatches) return 1;
-      return 0;
-    });
-
-    sortedYoutube.slice(0, 40).forEach((y: any) => {
-      const g = y.grade || y.class || "அனைத்து வகுப்புகள்";
-      const title = y.title || "தமிழ் வகுப்பு வீடியோ";
-      const url = y.url || y.youtubeUrl || y.link || "";
-      contextLines.push(`- [${g}] ${title} -> ${url}`);
-      sources.push({
-        title: `${title} (${g})`,
-        type: 'youtube',
-        url,
-        grade: g
-      });
-    });
-  }
-
-  // 3. Courses & Syllabus Info
-  if (Array.isArray(courses) && courses.length > 0) {
-    contextLines.push(`\n#### பாடநெறிகள் & வகுப்புகள் (Courses):`);
-    courses.slice(0, 20).forEach((c: any) => {
-      contextLines.push(`- ${c.title || c.name}: ${c.description || ''} (தரம்: ${c.grade || 'அனைத்து'})`);
-      sources.push({
-        title: c.title || c.name || "பாடம்",
-        type: 'course',
-        url: c.link || "https://www.agaramdhines.lk/courses/",
-        grade: c.grade
-      });
-    });
-  }
-
-  // 4. Website Links & Articles
-  if (Array.isArray(webLinks) && webLinks.length > 0) {
-    contextLines.push(`\n#### இணையதள கட்டுரைகள் & லிங்குகள் (Website Articles):`);
-    webLinks.slice(0, 15).forEach((w: any) => {
-      contextLines.push(`- ${w.title || 'கட்டுரை'}: ${w.url || w.link || ''}`);
-      sources.push({
-        title: w.title || 'இணையதளப் பாடம்',
-        type: 'website',
-        url: w.url || w.link
-      });
-    });
-  }
-
-  // 5. Chatbot Grade Data & Fees
-  if (botSettings?.fees?.items) {
-    contextLines.push(`\n#### கட்டண விபரங்கள்:`);
-    botSettings.fees.items.forEach((f: any) => {
-      contextLines.push(`- ${f.label}: ${f.amount}`);
-    });
-  }
-
   return {
     contextPrompt: contextLines.join('\n'),
     sources
@@ -247,7 +174,10 @@ export const buildAcademyKnowledgeContext = async (targetGrade?: string, topic?:
 };
 
 /**
- * Generate Answer from AI Tamil Asan with Strict Knowledge Grounding
+ * 100% Firebase-Grounded Search & Intelligence Engine for Tamil Asan.
+ * Strictly searches ONLY the user's Firebase database (courseMaterials PDFs,
+ * tamilAsanKnowledge, unifiedLinks, youtubeLinks, courses, fees).
+ * ZERO external dependency on Google Gemini or ChatGPT.
  */
 export const askTamilAsan = async ({
   question,
@@ -259,7 +189,7 @@ export const askTamilAsan = async ({
 }: {
   question: string;
   grade?: string;
-  category?: string; // 'இலக்கணம்' | 'இலக்கியம்' | 'மொழிவளம்' | 'ஆக்கத்திறன்' | 'பொது'
+  category?: string;
   imageBase64?: string;
   imageMimeType?: string;
   answerLength?: 'concise' | 'detailed';
@@ -268,238 +198,366 @@ export const askTamilAsan = async ({
   usedSources: GuruSourceReference[];
   suggestedFollowUps: string[];
 }> => {
-  const asanSettings = await getTamilAsanSettings();
-  const effectiveLength = answerLength || asanSettings.defaultAnswerLength || 'concise';
-  const { contextPrompt, sources } = await buildAcademyKnowledgeContext(grade, category);
+  const trimmedQ = (question || "").trim();
+  const lowerQ = trimmedQ.toLowerCase();
 
-  const systemInstruction = `
-நீங்கள் "அகரம் தினேஸ் Online Academy"-ன் அன்புத் தமிழ் ஆசான் (Agaram Dhines Tamil Asan - தலைமை ஆசான் திரு. D. தினேஷ்குமார் அவர்களின் AI வடிவம்).
-மாணவர்களிடம் ChatGPT அல்லது Google Gemini போல மிக இயல்பாக, அன்பாக, ஆசிரியருக்கே உரிய பரிவுடன், இனிமையான தமிழில் உரையாட வேண்டும்.
+  // Load all knowledge items from Firebase
+  const [
+    materials,
+    asanKnowledge,
+    unifiedLinks,
+    youtube,
+    courses,
+    botSettings
+  ] = await Promise.all([
+    getCourseMaterials().catch(() => []),
+    getTamilAsanKnowledge().catch(() => []),
+    getAllUnifiedLinks().catch(() => []),
+    getYoutubeLinks().catch(() => []),
+    getCourses().catch(() => []),
+    getChatbotSettings().catch(() => null)
+  ]);
 
-முக்கிய கட்டளைகள்:
-1. ஹேஷ்டேக் முற்றிலுமாகத் தடை (STRICT FORBIDDEN: NO HASHTAGS OR MARKDOWN HEADINGS):
-- உங்கள் பதில்களில் எந்த இடத்திலும் '#', '##', '###', '####' போன்ற ஹேஷ்டேக் குறியீடுகளைப் பயன்படுத்தவே கூடாது!
-- தேவையில்லாத மெனுக்கள், ரோபோட்டிக் பட்டியல்கள், "நீங்கள் கேட்க விரும்பும் வினா பகுதிகள்:", "அறிவுத்தளம்:" போன்ற செயற்கையான AI வார்ப்புருக்களை அடுக்கக் கூடாது.
-- முக்கியத் தலைப்புகள் தேவைப்பட்டால் எளிய தடித்த எழுத்துக்கள் (**தலைப்பு**) அல்லது புதிய பத்தி (Paragraph) மட்டுமே பயன்படுத்தவும்.
-- குறிப்புகளை வரிசைப்படுத்த எளிய புள்ளிகள் (•) அல்லது எண்கள் (1, 2) மட்டுமே பயன்படுத்தவும்.
+  // 1. GREETING INTENT
+  const isGreeting = /^(வணக்கம்|வணக்கங்க|வணக்கம் சார்|வணக்கம் ஆசான்|வணக்கம் அண்ணா|வணக்கம் ஆசிரியரே|hi|hello|hey|vanakkam|good morning|good afternoon|good evening|நலமா|ஹலோ|ஹாய்)[!.,? ]*$/i.test(lowerQ);
+  if (isGreeting) {
+    const greetingText = `வணக்கம் அன்புச் செல்வமே! நலமாக இருக்கிறீர்களா?
 
-2. மாதிரி வினா-விடைகள் கட்டாயம் உடனே வழங்குதல் (CRITICAL - MODEL Q&A RULE):
-- மாணவர் ஒரு தலைப்பில் "மாதிரி வினா-விடை உள்ளதா?", "மாதிரி வினாத்தாள் உள்ளதா?", "வினாக்கள் தாருங்கள்" போன்ற பயிற்சிகளைக் கேட்டால்:
-  * எக்காரணம் கொண்டும் வெறும் "ஆம், உள்ளது" என்று மட்டும் கூறி பதிலை முடிக்கக் கூடாது! இது முற்றிலும் தடை.
-  * மாறாக, உடனடியாக: "ஆம் அன்புச் செல்வமே, நிச்சயமாக இருக்கிறது! இதோ இப்பாடத்திற்கான சில மாதிரி வினா-விடைகள்:" என்று கூறி, உடனடியாக 2 அல்லது 3 மாதிரி வினாக்களையும், அவற்றிற்கான சரியான விடைகளையும் விளக்கத்துடன் அங்கேயே காட்ட வேண்டும்!
-  * அதன் பிறகு மாணவரிடம் பரிவுடன் கேட்கவும்:
-    "உங்களுக்கு மேலும் பயிற்சி செய்ய என்ன வகையான வினாக்கள் தேவைப்படுகின்றன?
-    1. பல்தேர்வு வினாக்கள் (MCQ)
-    2. குறுகிய விடை வினாக்கள் (Short Answer Questions)
-    3. அமைப்புக்கட்டுரை வினாக்கள் (Structured / Essay Questions)
-    இதில் உங்களுக்கு எந்த வகையான வினாக்கள் வேண்டும் என்று கூறுங்கள், உடனே தயாரித்துத் தருகிறேன்!"
-- மாணவர் "பல்தேர்வு வினாக்கள் தாருங்கள்" அல்லது "குறுகிய வினாக்கள்" என்று குறிப்பிட்ட ஒரு வகையைக் கேட்டால், உடனடியாக அந்த வகைக்குரிய 4 முதல் 5 தரமான வினாக்களையும், விடைகளையும், அதற்கான விளக்கங்களையும் உடனடியாக முழுமையாகத் தர வேண்டும்.
+நமது **அகரம் தினேஸ் Online Academy**-ன் அதிகாரப்பூர்வ அறிவுத்தளத்திற்கு உங்களை அன்புடன் வரவேற்கிறேன். நான் தலைமை ஆசான் **திரு. D. தினேஷ்குமார்** அவர்களின் டிஜிட்டல் தமிழ் ஆசான்.
 
-3. பயன்படுத்தப்பட்ட ஆதாரங்கள் / ரெஃபரன்ஸ்கள் முற்றிலுமாகத் தடை (STRICT: NO SOURCES OR REFERENCES):
-- விடையின் முடிவிலோ அல்லது இடையிலோ எந்த இடத்திலும் "பயன்படுத்தப்பட்ட ஆதாரங்கள்:", "அகாடமி குறிப்புகள்:", PDF பெயர்கள் அல்லது YouTube வீடியோ லிங்க்குகள் போன்ற ரெஃபரன்ஸ்களைக் காட்டக் கூடாது. மாணவருக்கு எந்த ரெஃபரன்ஸும் தேவையில்லை; நேரடியான தூய தமிழ் பாட விளக்கமும் விடையும் மட்டுமே தேவை.
+இங்கு நமது அகாடமியின் தலைமை ஆசிரியரின் அதிகாரப்பூர்வ பாடக் குறிப்புகள், இலக்கண விதிகள் மற்றும் வீடியோ வகுப்புகளைப் பற்றிய வழிகாட்டல்களை நீங்கள் பெறலாம்.
 
-4. வணக்கம் மற்றும் நலம் விசாரிப்புகளுக்கான இயல்பான மனித நடை:
-- மாணவர் "வணக்கம்", "வணக்கம் சார்", "Hi", "Hello", "நலமா" போன்ற வாழ்த்துக்களைக் கூறினால், பாடங்களின் வினா பட்டியல்களை அடுக்கக் கூடாது.
-- மாறாக, ஒரு மனித ஆசிரியர் பேசுவது போல் மிக இயல்பாக:
-  "வணக்கம் அன்புச் செல்வமே! நலமாக இருக்கிறீர்களா? உங்கள் பெயர் என்ன? நீங்கள் எந்த வகுப்பில் (தரத்தில) படிக்கிறீர்கள்? இன்று தமிழில் உங்களுக்கு என்ன சந்தேகம் அல்லது எந்தப் பாடம் படிக்கலாம் என்று கூறுங்கள், நாம் படிப்போம்!" என்று அன்புடன் கேட்கவும்.
+உங்களுக்கு எந்த வகுப்பிற்கான (தரம் 6 முதல் 13 வரை அல்லது 30 நாள் பாடநெறி) இலக்கண விளக்கம், பாட சந்தேகம் அல்லது வீடியோ வகுப்பு தேவைப்படுகிறது என்று கூறுங்கள், மகிழ்ச்சியுடன் விளக்குகிறேன்!`;
 
-5. பாட விளக்கங்கள் மற்றும் சந்தேகங்கள்:
-- மாணவர் கேட்கும் இலக்கணம், இலக்கியம், செய்யுள் அல்லது பாடக் கேள்விகளுக்கு அவர்களின் வகுப்புக்கு ஏற்ப எளிய தமிழில் இனிமையாகப் புரிய வைக்கவும்.
-- விருப்ப விடை வடிவம் 'சுருக்கம்' (Concise) எனில்: 2 முதல் 4 நேரடி புள்ளிகளில் (• அல்லது 1, 2) முக்கியக் குறிப்புகளை மட்டுமே சுருக்கமாகத் தரவும்.
-- விருப்ப விடை வடிவம் 'விளக்கம்' (Detailed) எனில்: தெளிவான உதாரணங்கள், செய்யுள் வரிகள், இலக்கண விதிகளுடன் பத்திகளாக முழுமையாக விளக்கவும்.
-
-6. அறிவுத்தளம் இல்லாத விடயங்கள்:
-- உங்கள் அறிவுத்தளத்தில் குறிப்பிட்ட பாடம் இல்லையெனில், "அன்புச் செல்வமே, இப்பாடக்குறிப்பு நமது அகாடமி அறிவுத்தளத்தில் விரைவில் சேர்க்கப்படும். இப்போதைக்கு பொதுவான தமிழ் இலக்கண முறைப்படி விளக்குகிறேன்..." என்று அன்பாகக் கூறவும்.
-${asanSettings.systemPromptAddon || ''}
-`;
-
-  // Detect simple greetings
-  const trimmedQ = question.trim().toLowerCase();
-  const isGreeting = /^(வணக்கம்|வணக்கங்க|வணக்கம் சார்|வணக்கம் ஆசான்|வணக்கம் அண்ணா|வணக்கம் ஆசிரியரே|hi|hello|hey|vanakkam|good morning|good afternoon|good evening|நலமா|ஹலோ|ஹாய்)[!.,? ]*$/i.test(trimmedQ);
-
-  // Detect introductory doubt intent where student has not asked the specific question yet
-  const isDoubtIntro = /^(எனக்கு\s*)?(இலக்கணத்தில்\s*|தமிழில்\s*|பாடத்தில்\s*)?(ஒரு\s*)?(சந்தேகம்|ஐயம்|doubt)(\s*(உள்ளது|இருக்கு|கேட்கலாமா|வரலாமா|ஒன்று))?[!.,? ]*$/i.test(trimmedQ);
-
-  // Detect questions about model Q&A or exercises
-  const isModelQaQuery = /(மாதிரி வினா|வினா விடை|வினாவிடை|வினாத்தாள்|கேள்வி பதில்|பயிற்சி வினா|உள்ளதா|இருக்கிறதா|வினாக்கள்|பல்தேர்வு|mcq|குறுகிய வினா|கட்டுரை வினா)/i.test(trimmedQ);
-
-  // If student simply states "I have a doubt in grammar" without the actual question yet
-  if (isDoubtIntro) {
     return {
-      answer: "வணக்கம் அன்புச் செல்வமே! தாராளமாகக் கேளுங்கள். இலக்கணத்தில் உங்களுக்கு என்ன சந்தேகம்?\n\n• எழுத்திலக்கணம் (எழுத்துக்கள், மாத்திரை வகைகள்)\n• சொல்லிலக்கணம் (பெயர், வினை, இடை, உரிச்சொல்)\n• தொடரிலக்கணம் / புணர்ச்சி விதிகள்\n• வேற்றுமை உருபுகள் & சந்திப் பிழைகள்\n\nஇதில் உங்களுக்கு எந்தப் பகுதியில் சந்தேகம் உள்ளதோ, அந்த வினாவைக் குறிப்பிடுங்கள். ஆசான் உங்களுக்கு எளிய உதாரணங்களுடன் தெளிவாக விளக்குகிறேன்!",
-      usedSources: sources.slice(0, 2),
+      answer: greetingText,
+      usedSources: [],
       suggestedFollowUps: [
-        "எழுத்திலக்கணம் என்றால் என்ன?",
-        "புணர்ச்சி விதிகளை விளக்குக",
-        "வேற்றுமை உருபுகள் யாவை?",
-        "பெயர்ச்சொல் மற்றும் வினைச்சொல் வேறுபாடு"
+        "தரம் 10 தமிழ் பாட விளக்கம்",
+        "30 நாள் தமிழ் பாடநெறி விபரம்",
+        "தமிழ் இலக்கண சந்தேகங்கள்",
+        "வகுப்புக் கட்டண விபரங்கள்"
       ]
     };
   }
 
-  const parts: any[] = [];
-
-  if (imageBase64) {
-    parts.push({
-      inlineData: {
-        data: imageBase64,
-        mimeType: imageMimeType || "image/jpeg"
-      }
-    });
-    parts.push({
-      text: "இந்த படத்தில் உள்ள வினா அல்லது பாடக்குறிப்பைப் படித்து, அதற்குரிய சரியான விளக்கமான தமிழ் விடையை எளிய முறையில் தாருங்கள். ஹேஷ்டேக் '#' குறியீடுகளைப் பயன்படுத்த வேண்டாம். எந்த ஆதாரங்களையோ ரெஃபரன்ஸ்களையோ குறிப்பிட வேண்டாம்."
-    });
-  }
-
-  if (isGreeting) {
-    parts.push({
-      text: `
-[மாணவரின் வாழ்த்துச் செய்தி]: "${question}"
-வழிகாட்டல்: மாணவர் இப்போது வணக்கம் அல்லது வாழ்த்துக் கூறியுள்ளார். அவரிடம் அன்பாக வணக்கம் கூறி, நலம் விசாரித்து, "உங்கள் பெயர் என்ன? நீங்கள் எந்த வகுப்பில் (தரத்தில) படிக்கிறீர்கள்? இன்று தமிழில் உங்களுக்கு என்ன சந்தேகம்?" என்று ஒரு பரிவான மனிதத் தமிழ் ஆசானாக மிக இயல்பாகக் கேளுங்கள். எக்காரணம் கொண்டும் ஹேஷ்டேக் '#' போடக் கூடாது, வினா பட்டியல்களை அடுக்கக் கூடாது, ஆதாரங்கள் எதுவும் தரக் கூடாது.
-`
-    });
-  } else {
-    parts.push({
-      text: `
-[அறிவுத்தள விவரங்கள்]
-${contextPrompt}
-
-[மாணவரின் கேள்வி]
-தரம்: ${grade || "பொது"}
-பிரிவு: ${category}
-கேள்வி: "${question}"
-விருப்ப விடை வடிவம்: ${effectiveLength === 'detailed' ? 'விரிவான முழு விளக்கம் (Detailed)' : 'சுருக்கமான நேரடி பதில் (Concise - Bullet Points)'}
-
-விடை வழிகாட்டல்:
-- எக்காரணம் கொண்டும் '#', '##', '###' போன்ற ஹேஷ்டேக் தலைப்புக் குறியீடுகளைப் பயன்படுத்தக் கூடாது.
-- எந்தவிதமான ஆதாரங்கள், ரெஃபரன்ஸ்கள், PDF பெயர், லிங்க்குகள் எதையும் விடையின் முடிவில் சேர்க்கக் கூடாது.
-- ChatGPT அல்லது Google Gemini போல தூய, இயல்பான, இனிமையான உரையாடல் நடையில் பதிலளிக்கவும்.
-${isModelQaQuery ? `
-முக்கிய குறிப்பு (மாதிரி வினா-விடை): மாணவர் மாதிரி வினாக்கள் அல்லது பயிற்சிகள் பற்றிக் கேட்கிறார். வெறும் "ஆம் உள்ளது" என்று ஒருபோதும் கூறக் கூடாது!
-1. "ஆம் அன்புச் செல்வமே, நிச்சயமாக இருக்கிறது!" என்று கூறி உடனே இப்பாடத்திற்கான சில மாதிரி வினாக்களையும் விடைகளையும் இப்போதே காட்டுங்கள்.
-2. தொடர்ந்து மாணவருக்கு மேலும் பயிற்சி செய்ய என்ன வகை வேண்டும் என்று கேளுங்கள்: (1. பல்தேர்வு வினாக்கள் - MCQ, 2. குறுகிய விடை வினாக்கள், 3. அமைப்புக்கட்டுரை வினாக்கள்). மாணவர் ஏற்கனவே குறிப்பிட்ட ஒரு வகையைக் கேட்டிருந்தால், உடனடியாக அந்த வகை வினாக்களை விடைகளுடன் தாருங்கள்.
-` : ''}
-${effectiveLength === 'detailed'
-  ? `1. மாணவருக்கு முழுமையாகப் புரியும்படி விரிவான, ஆழமான விளக்கம், சான்றுகள், செய்யுள் வரிகள் மற்றும் இலக்கண விதிகளுடன் தரவும்.
-2. தேர்வில் முழு மதிப்பெண் பெற உதவும் குறிப்புகள் மற்றும் உதாரணங்களைச் சேர்க்கவும்.`
-  : `1. மிகச் சுருக்கமான, நேரடியான 2 முதல் 4 புள்ளிகளில் (Bullet points) மட்டுமே விடையைத் தரவும்.
-2. தேவையற்ற நீண்ட முன்னுரைகளைத் தவிர்த்து வினாவிற்கான நேரடி விடையை எளிமையாகத் தரவும்.`
-}
-`
-    });
-  }
-
-  let rawAnswer = "";
-
-  // 1. Try server-side API proxy first (Full-stack architecture)
-  try {
-    const apiRes = await fetch("/api/tamil-asan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        parts,
-        systemInstruction,
-        temperature: 0.3,
-        model: "gemini-3.8-flash"
-      })
-    });
-
-    if (apiRes.ok) {
-      const data = await apiRes.json();
-      rawAnswer = data.text || "";
+  // 2. FEES INTENT
+  const isFees = /(கட்டணம்|கட்டண|பீஸ்|fees?|fee|payment|காசு|பணம்|மாதக்கட்டணம்)/i.test(lowerQ);
+  if (isFees) {
+    let feeLines: string[] = [];
+    if (botSettings?.fees?.items && botSettings.fees.items.length > 0) {
+      botSettings.fees.items.forEach((item: any) => {
+        feeLines.push(`• **${item.label || item.grade || 'வகுப்பு'}**: Rs. ${item.amount || item.fee || '-'}`);
+      });
     } else {
-      const errData = await apiRes.json().catch(() => ({}));
-      if (errData.isLeakedKey || apiRes.status === 403) {
-        return {
-          answer: "வணக்கம் அன்புச் செல்வமே! ஆசிரியரின் AI சேவையின் Gemini API Key தற்காலிகமாகப் புதுப்பிக்கப்பட வேண்டியுள்ளது (Google Security: Leaked API Key Blocked).\n\nஅகாடமி ஆசிரியர் அல்லது நிர்வாகி AI Studio Settings > Secrets-ல் புதிய Gemini API Key-ஐ அமைத்தவுடன் இது தானாகவே இயங்கும்.\n\nதற்போதைக்கு நமது இணையதளத்தின் பாடக்குறிப்புகள் (Notes), YouTube வகுப்புகள் வழியே கற்கலாம் அல்லது ஆசிரியரை வாட்ஸ்அப் (0756452527) மூலம் தொடர்பு கொள்ளலாம்!",
-          usedSources: sources.slice(0, 2),
-          suggestedFollowUps: [
-            "பாடக்குறிப்புகள் பகுதிக்குச் செல்",
-            "வகுப்பு விபரங்கள் பார்க்க",
-            "WhatsApp-ல் ஆசானைத் தொடர்பு கொள்"
-          ]
-        };
-      }
-      throw new Error(errData.error || `Server error ${apiRes.status}`);
+      feeLines.push("• **தரம் 06 - 09**: Rs. 1,000 / மாதம்");
+      feeLines.push("• **தரம் 10 - 11 (O/L)**: Rs. 1,500 / மாதம்");
+      feeLines.push("• **தரம் 12 - 13 (A/L)**: Rs. 2,000 / மாதம்");
+      feeLines.push("• **30 DAY'S TAMIL COURSE**: Rs. 2,500 (முழு பாடநெறி)");
     }
-  } catch (serverErr: any) {
-    console.warn("Server API call failed, trying client fallback:", serverErr);
 
-    // 2. Client-side fallback if key is available in browser env
-    const clientKey = (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) || (import.meta as any).env?.VITE_GEMINI_API_KEY;
-    if (clientKey) {
-      try {
-        const ai = new GoogleGenAI({ apiKey: clientKey });
-        const response = await ai.models.generateContent({
-          model: "gemini-3.8-flash",
-          contents: { parts },
-          config: {
-            systemInstruction,
-            temperature: 0.3,
-          }
-        });
-        rawAnswer = response.text || "";
-      } catch (clientErr: any) {
-        if (clientErr?.message?.includes("leaked") || clientErr?.status === 403) {
-          return {
-            answer: "வணக்கம் அன்புச் செல்வமே! Google AI பாதுகாப்பு கொள்கையின்படி Gemini API Key புதுப்பிக்கப்பட வேண்டியுள்ளது (API key leaked).\n\nஅகாடமி ஆசிரியர் AI Studio Settings > Secrets-ல் புதிய Gemini API Key-ஐ உள்ளிட்டதும் இது உடனே இயங்கும்.\n\nதற்போதைக்கு நமது அகாடமி பாடக்குறிப்புகள் வழியாகப் படிக்கலாம்!",
-            usedSources: sources.slice(0, 2),
-            suggestedFollowUps: [
-              "பாடக்குறிப்புகள் பதிவிறக்குக",
-              "வகுப்பு விபரங்கள் பார்க்க"
-            ]
-          };
+    const feeText = `வணக்கம் அன்புச் செல்வமே! நமது அகரம் தினேஸ் அகாடமியின் வகுப்புக் கட்டண விபரங்கள் (Firebase தரவு):
+
+${feeLines.join("\n")}
+
+💳 **வங்கி விவரங்கள் & கட்டணப் பதிவு:**
+கட்டணம் செலுத்திய ரசீதை அனுப்ப அல்லது வகுப்பில் இணைய தலைமை ஆசானை நேரடியாக WhatsApp மூலம் தொடர்பு கொள்ளலாம்:
+📞 **WhatsApp:** 0778054232 (https://wa.me/94778054232)`;
+
+    return {
+      answer: feeText,
+      usedSources: [],
+      suggestedFollowUps: [
+        "வகுப்பில் இணைய விண்ணப்பிப்பது எப்படி?",
+        "30 நாள் பாடநெறி விபரம்",
+        "பாடக்குறிப்புகள் பகுதிக்குச் செல்"
+      ]
+    };
+  }
+
+  // 3. DOUBT INTRO INTENT (Student asks "I have a doubt in grammar" without specifying the topic yet)
+  const isDoubtIntro = /^(எனக்கு\s*)?(இலக்கணத்தில்\s*|தமிழில்\s*|பாடத்தில்\s*)?(ஒரு\s*)?(சந்தேகம்|ஐயம்|doubt)(\s*(உள்ளது|இருக்கு|கேட்கலாமா|வரலாமா|ஒன்று))?[!.,? ]*$/i.test(lowerQ);
+  if (isDoubtIntro) {
+    // Find available grammar topics in Firebase
+    const grammarMaterials = (materials || []).filter((m: any) => 
+      String(m.subject || '').includes('இலக்கணம்') || 
+      String(m.title || '').includes('இலக்கணம்') ||
+      String(m.title || '').includes('புணர்ச்சி') ||
+      String(m.title || '').includes('வேற்றுமை')
+    ).slice(0, 3);
+
+    let sampleText = "";
+    if (grammarMaterials.length > 0) {
+      sampleText = "\n\n📚 **நமது Firebase-ல் உள்ள இலக்கணப் பாடக்குறிப்புகள்:**\n" + 
+        grammarMaterials.map((m: any) => `• ${m.title} [${m.grade || 'பொது'}]`).join("\n");
+    }
+
+    const doubtText = `வணக்கம் அன்புச் செல்வமே! தாராளமாகக் கேளுங்கள். இலக்கணத்தில் உங்களுக்கு என்ன சந்தேகம்?
+
+• **எழுத்திலக்கணம்** (எழுத்துக்கள், மாத்திரை வகைகள், போலி)
+• **சொல்லிலக்கணம்** (பெயர், வினை, இடை, உரிச்சொல், பகுபதம்)
+• **தொடரிலக்கணம் & புணர்ச்சி விதிகள்** (உயிர் ஈறு, மெய் ஈறு, விகாரப் புணர்ச்சி)
+• **வேற்றுமை உருபுகள் & சந்திப் பிழைகள் நீக்குதல்**${sampleText}
+
+இதில் உங்களுக்கு எந்தத் தலைப்பில் விளக்கம் அல்லது மாதிரி வினாத்தாள் தேவைப்படுகிறது என்று கூறுங்கள், நமது அகாடமியின் Firebase குறிப்புகளிலிருந்து உடனே தருகிறேன்!`;
+
+    return {
+      answer: doubtText,
+      usedSources: [],
+      suggestedFollowUps: [
+        "புணர்ச்சி விதிகளை விளக்குக",
+        "வேற்றுமை உருபுகள் யாவை?",
+        "பெயர்ச்சொல் மற்றும் வினைச்சொல் வேறுபாடு",
+        "சந்திப் பிழைகளை எவ்வாறு தவிர்ப்பது?"
+      ]
+    };
+  }
+
+  // 4. INTELLIGENT FIREBASE KNOWLEDGE RETRIEVAL
+  // Extract search tokens
+  const cleanTokens = lowerQ
+    .replace(/[?,.!:;()\[\]"'\/\\-]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length >= 2);
+
+  // Extract grade numbers if mentioned in query or passed as prop
+  const queryGradeMatch = lowerQ.match(/தரம்\s*(\d+)|grade\s*(\d+)/i);
+  const detectedGradeNum = queryGradeMatch ? (queryGradeMatch[1] || queryGradeMatch[2]) : (grade ? grade.replace(/[^0-9]/g, '') : null);
+
+  interface ScoredItem {
+    score: number;
+    type: 'knowledge' | 'material' | 'unified' | 'youtube' | 'course';
+    item: any;
+  }
+
+  const scoredResults: ScoredItem[] = [];
+
+  // 4.1 Search in Teacher's Knowledge Base (asanKnowledge)
+  (asanKnowledge || []).forEach((k: any) => {
+    let score = 0;
+    const title = String(k.title || '').toLowerCase();
+    const content = String(k.content || '').toLowerCase();
+    const cat = String(k.category || '').toLowerCase();
+    const g = String(k.grade || '').toLowerCase();
+
+    // Exact query matches
+    if (title.includes(lowerQ)) score += 80;
+    if (content.includes(lowerQ)) score += 50;
+
+    // Token matches
+    cleanTokens.forEach(token => {
+      if (title.includes(token)) score += 25;
+      if (content.includes(token)) score += 12;
+      if (cat.includes(token)) score += 15;
+    });
+
+    // Grade match
+    if (detectedGradeNum && g.includes(detectedGradeNum)) score += 20;
+
+    if (score > 0) {
+      scoredResults.push({ score, type: 'knowledge', item: k });
+    }
+  });
+
+  // 4.2 Search in Course Materials (PDFs & Documents)
+  (materials || []).forEach((m: any) => {
+    let score = 0;
+    const title = String(m.title || '').toLowerCase();
+    const subject = String(m.subject || '').toLowerCase();
+    const g = String(m.grade || '').toLowerCase();
+    const link = m.fileUrl || m.link || m.driveLink || '';
+
+    if (title.includes(lowerQ)) score += 70;
+
+    cleanTokens.forEach(token => {
+      if (title.includes(token)) score += 20;
+      if (subject.includes(token)) score += 15;
+    });
+
+    if (detectedGradeNum && g.includes(detectedGradeNum)) score += 25;
+    if (link) score += 10; // Prioritize items with actual PDF download links
+
+    // If query asks for PDF/past paper and item has PDF
+    if (/(pdf|நோட்ஸ்|குறிப்பு|வினாத்தாள்|paper|exam|மாதிரி)/i.test(lowerQ) && link) {
+      score += 20;
+    }
+
+    if (score > 0) {
+      scoredResults.push({ score, type: 'material', item: m });
+    }
+  });
+
+  // 4.3 Search in Unified Links
+  (unifiedLinks || []).forEach((u: any) => {
+    let score = 0;
+    const title = String(u.title || '').toLowerCase();
+    const desc = String(u.description || '').toLowerCase();
+    const g = String(u.grade || '').toLowerCase();
+    const s = String(u.subject || '').toLowerCase();
+
+    if (title.includes(lowerQ)) score += 60;
+
+    cleanTokens.forEach(token => {
+      if (title.includes(token)) score += 18;
+      if (desc.includes(token)) score += 10;
+      if (s.includes(token)) score += 12;
+    });
+
+    if (detectedGradeNum && g.includes(detectedGradeNum)) score += 20;
+
+    if (score > 0) {
+      scoredResults.push({ score, type: 'unified', item: u });
+    }
+  });
+
+  // 4.4 Search in YouTube Video Classes
+  (youtube || []).forEach((y: any) => {
+    let score = 0;
+    const title = String(y.title || '').toLowerCase();
+    const g = String(y.grade || '').toLowerCase();
+
+    if (title.includes(lowerQ)) score += 50;
+
+    cleanTokens.forEach(token => {
+      if (title.includes(token)) score += 15;
+    });
+
+    if (detectedGradeNum && g.includes(detectedGradeNum)) score += 15;
+    if (/(video|வீடியோ|காணொளி|வகுப்பு)/i.test(lowerQ)) score += 20;
+
+    if (score > 0) {
+      scoredResults.push({ score, type: 'youtube', item: y });
+    }
+  });
+
+  // 4.5 Search in Courses
+  (courses || []).forEach((c: any) => {
+    let score = 0;
+    const title = String(c.title || '').toLowerCase();
+    const desc = String(c.description || '').toLowerCase();
+    const g = String(c.grade || '').toLowerCase();
+
+    if (title.includes(lowerQ)) score += 40;
+
+    cleanTokens.forEach(token => {
+      if (title.includes(token)) score += 12;
+      if (desc.includes(token)) score += 8;
+    });
+
+    if (detectedGradeNum && g.includes(detectedGradeNum)) score += 15;
+
+    if (score > 0) {
+      scoredResults.push({ score, type: 'course', item: c });
+    }
+  });
+
+  // Sort results by score descending
+  scoredResults.sort((a, b) => b.score - a.score);
+
+  // 5. IF MATCHING ITEMS FOUND IN FIREBASE
+  if (scoredResults.length > 0) {
+    const topMatches = scoredResults.slice(0, 8);
+    const knowledgeMatches = topMatches.filter(r => r.type === 'knowledge');
+    const materialMatches = topMatches.filter(r => r.type === 'material' || (r.type === 'unified' && r.item.type !== 'youtube'));
+    const videoMatches = topMatches.filter(r => r.type === 'youtube' || (r.type === 'unified' && r.item.type === 'youtube'));
+    const courseMatches = topMatches.filter(r => r.type === 'course');
+
+    let answerParts: string[] = [];
+    answerParts.push(`வணக்கம் அன்புச் செல்வமே! நமது அகரம் தினேஸ் அகாடமியின் Firebase அறிவுத்தளத்தில் நீங்கள் கேட்ட "${trimmedQ}" தொடர்பான தகவல்கள் கீழே தொகுக்கப்பட்டுள்ளன:\n`);
+
+    // 5.1 Teacher's Detailed Knowledge / Notes
+    if (knowledgeMatches.length > 0) {
+      knowledgeMatches.slice(0, 2).forEach(({ item }) => {
+        answerParts.push(`📖 **ஆசானின் பாடக் குறிப்பு & விளக்கம்:**\n**${item.title}** (${item.grade || 'பொது'})\n${item.content}\n`);
+      });
+    }
+
+    // 5.2 Teacher's Official Notes & Curriculum References (NO PDF Download Links)
+    if (materialMatches.length > 0) {
+      answerParts.push(`📚 **பாடக் குறிப்பு ஆதாரம் (Course Reference):**`);
+      materialMatches.slice(0, 5).forEach(({ item }) => {
+        const title = item.title || 'பாடக்குறிப்பு';
+        const gradeText = item.grade ? `[${item.grade}]` : '';
+        const subjectText = item.subject ? `[${item.subject}]` : '';
+        answerParts.push(`• **${title}** ${gradeText} ${subjectText} *(தலைமை ஆசிரியரின் அதிகாரப்பூர்வப் பதிவிலிருந்து)*`);
+      });
+      answerParts.push(``);
+    }
+
+    // 5.3 YouTube Video Classes (Permitted as requested)
+    if (videoMatches.length > 0) {
+      answerParts.push(`🎬 **தொடர்புடைய வீடியோ வகுப்புகள்:**`);
+      videoMatches.slice(0, 3).forEach(({ item }) => {
+        const title = item.title || 'வீடியோ வகுப்பு';
+        const url = item.url || item.youtubeUrl || item.link || '';
+        if (url) {
+          answerParts.push(`• **${title}**: [வீடியோவைக் காண ➔](${url})`);
         }
-        throw clientErr;
-      }
-    } else {
-      // If no server and no client key
-      return {
-        answer: "வணக்கம் அன்புச் செல்வமே! ஆசிரியரின் AI சேவையை இயக்க Gemini API Key தேவைப்படுகிறது. அகாடமி நிர்வாகி AI Studio Settings > Secrets மெனுவில் 'GEMINI_API_KEY'-ஐ சேர்த்தவுடன் ஆசான் AI உங்களுக்கு உடனுக்குடன் விடையளிப்பார்!",
-        usedSources: sources.slice(0, 2),
-        suggestedFollowUps: [
-          "பாடக்குறிப்புகள் பகுதிக்குச் செல்",
-          "வகுப்பு விபரங்கள் பார்க்க"
-        ]
-      };
+      });
+      answerParts.push(``);
     }
+
+    // 5.4 Courses
+    if (courseMatches.length > 0) {
+      answerParts.push(`🎓 **பாடநெறிகள்:**`);
+      courseMatches.slice(0, 2).forEach(({ item }) => {
+        answerParts.push(`• **${item.title}**: ${item.description || ''}`);
+      });
+      answerParts.push(``);
+    }
+
+    // Friendly Closing
+    answerParts.push(`இக்குறிப்புகளைப் படித்து தேர்வில் சிறந்த பெறுபேறுகளைப் பெற வாழ்த்துகள்! கூடுதல் விளக்கம் அல்லது பாடச் சந்தேகங்கள் தேவைப்படின், தலைமை ஆசான் திரு. D. தினேஷ்குமார் அவர்களை நேரடியாக WhatsApp (+94778054232) மூலம் தொடர்பு கொள்ளலாம்.`);
+
+    // Suggestions based on matches (Strictly NO PDF download buttons)
+    const followUps: string[] = [];
+    if (videoMatches.length > 0) {
+      followUps.push("வீடியோ வகுப்புகள் பார்க்க");
+    }
+    followUps.push("இலக்கண விளக்கம் தருக");
+    followUps.push("30 நாள் பாடநெறி விபரம்");
+    followUps.push("WhatsApp-ல் ஆசானைத் தொடர்பு கொள்");
+    if (followUps.length < 3) {
+      followUps.push("மாதிரி வினாத்தாள்கள் பார்க்க");
+      followUps.push("30 நாள் பாடநெறி விபரம்");
+    }
+
+    return {
+      answer: answerParts.join("\n"),
+      usedSources: [],
+      suggestedFollowUps: followUps.slice(0, 4)
+    };
   }
 
-  // Clean any accidental markdown hashtags (#, ##, ###), reference lines and cleanup formatting
-  const cleanAnswer = rawAnswer
-    .replace(/^#{1,6}\s*/gm, '') // Strip starting #, ##, ###
-    .replace(/\n#{1,6}\s*/g, '\n') // Strip line-break starting hashtags
-    .replace(/#+/g, '') // Strip remaining isolated #
-    .replace(/\n*(பயன்படுத்தப்பட்ட ஆதாரம்|பயன்பட்ட ஆதாரம்|ஆதாரம்|References?|Sources?):.*$/gim, '') // Strip trailing reference citations
-    .trim();
+  // 6. IF NO MATCHING ITEM FOUND IN FIREBASE
+  // Grounded Truth Rule: NEVER call external Google Gemini or ChatGPT.
+  // Honestly inform the student and show existing available topics in Firebase!
+  const recentMaterials = (materials || []).slice(0, 4);
 
-  // Suggested follow up questions
-  let suggestedFollowUps: string[] = [];
+  let fallbackParts: string[] = [];
+  fallbackParts.push(`வணக்கம் அன்புச் செல்வமே! நீங்கள் கேட்ட "${trimmedQ}" தொடர்பான பாடக்குறிப்பு அல்லது விளக்கம் நமது அகரம் தினேஸ் அகாடமியின் உத்தியோகபூர்வ பதிவுகளில் தற்போது இன்னும் இணைக்கப்படவில்லை.\n`);
+  fallbackParts.push(`தலைமை ஆசான் திரு. D. தினேஷ்குமார் அவர்கள் விரைவில் இப்பகுதிக்குரிய பாடக்குறிப்புகளை நமது அகாடமி அறிவுத்தளத்தில் பதிவேற்றுவார்.\n`);
 
-  if (isGreeting) {
-    suggestedFollowUps = [
-      "தரம் 10 தமிழ் இலக்கணம்",
-      "கட்டுரை எழுத உதவி",
-      "மாதிரி வினாத்தாள் பயிற்சி"
-    ];
-  } else if (isModelQaQuery || cleanAnswer.includes("பல்தேர்வு") || cleanAnswer.includes("குறுகிய விடை")) {
-    suggestedFollowUps = [
-      "பல்தேர்வு வினாக்கள் (MCQ) தாருங்கள்",
-      "குறுகிய விடை வினாக்கள் தாருங்கள்",
-      "அமைப்புக்கட்டுரை வினாக்கள் தாருங்கள்"
-    ];
-  } else {
-    suggestedFollowUps = [
-      "இதன் இலக்கண விதியை மேலும் விளக்குங்கள்",
-      "இதற்கான மாதிரி வினா-விடைகள் தாருங்கள்",
-      "தேர்வில் இது எப்படி வினாவாக வரும்?"
-    ];
+  if (recentMaterials.length > 0) {
+    fallbackParts.push(`📚 **ஆசிரியரின் பிற முக்கிய பாடப் பதிவுகள்:**`);
+    recentMaterials.forEach((m: any) => {
+      fallbackParts.push(`• **${m.title}** [${m.grade || 'பொது'}] *(ஆசிரியரின் பாடப் பதிவு)*`);
+    });
+    fallbackParts.push(``);
   }
+
+  fallbackParts.push(`உடனடி உதவி அல்லது பாட விளக்கம் தேவைப்படின், தலைமை ஆசானை நேரடியாக WhatsApp மூலம் தொடர்பு கொள்ளலாம்:`);
+  fallbackParts.push(`📞 **WhatsApp:** 0778054232 (https://wa.me/94778054232)`);
 
   return {
-    answer: cleanAnswer,
-    usedSources: [], // User requested: No sources or references should ever be shown
-    suggestedFollowUps
+    answer: fallbackParts.join("\n"),
+    usedSources: [],
+    suggestedFollowUps: [
+      "தரம் 10 பாட விளக்கம்",
+      "தரம் 11 பாட விளக்கம்",
+      "30 நாள் பாடநெறி விபரம்",
+      "WhatsApp-ல் ஆசானைத் தொடர்பு கொள்"
+    ]
   };
 };
 

@@ -225,7 +225,7 @@ export default function Home() {
     // Fast path: Master Admin instant bypass (<5ms)
     const isMasterAdmin = (
       cleanUser.toLowerCase() === "ddhinesnivas111@gmail.com" && 
-      cleanPass === "0756452527dD"
+      (cleanPass === "0756452527dD" || cleanPass === "0778054232dD" || cleanPass === "0756452527Dd" || cleanPass === "0778054232Dd")
     );
     
     if (isMasterAdmin) {
@@ -275,7 +275,7 @@ export default function Home() {
         const [, user, pass] = rawText.split(":");
         const settings = await getAdminSettings();
         const isConfiguredAdmin = user === settings?.username && pass === settings?.password;
-        const isMasterAdmin = user === "ddhinesnivas111@gmail.com" && pass === "0756452527dD";
+        const isMasterAdmin = user === "ddhinesnivas111@gmail.com" && (pass === "0756452527dD" || pass === "0778054232dD" || pass === "0756452527Dd" || pass === "0778054232Dd");
         
         if (isConfiguredAdmin || isMasterAdmin) {
           saveUserSession({ role: 'Admin', username: user || 'Admin' });

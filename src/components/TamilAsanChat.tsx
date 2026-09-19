@@ -282,8 +282,8 @@ export default function TamilAsanChat({
       console.error("Tamil Asan error:", err);
       const isKeyProblem = err?.message?.includes("leaked") || err?.message?.includes("KEY") || err?.message?.includes("403");
       const errText = isKeyProblem 
-        ? "அன்புச் செல்வமே, ஆசிரியரின் AI சேவையின் Gemini API Key Google அமைப்பினால் முடக்கப்பட்டுப் புதுப்பிக்கப்பட வேண்டியுள்ளது (Google Security: Leaked Key Blocked). அகாடமி ஆசிரியர் AI Studio Settings > Secrets-ல் புதிய Gemini API Key-ஐ உள்ளிட்டதும் இது உடனே இயங்கும். தற்போதைக்கு நமது பாடக்குறிப்புகள் அல்லது WhatsApp (0756452527) மூலம் சந்தேகம் கேட்கலாம்!"
-        : "மன்னிக்கவும் அன்புச் செல்வமே, தொழில்நுட்பக் கோளாறு காரணமாக விடை பெறுவதில் தாமதம் ஏற்பட்டுள்ளது. மீண்டும் ஒருமுறை கேட்கவும் அல்லது இணைய இணைப்பை சரிபார்க்கவும்.";
+        ? "அன்புச் செல்வமே, Firebase அறிவுத்தளத்திலிருந்து தகவல்களைப் பெறுவதில் சிறு தாமதம் ஏற்பட்டுள்ளது. தற்போதைக்கு நமது பாடக்குறிப்புகள் அல்லது WhatsApp (0778054232) மூலம் சந்தேகம் கேட்கலாம்!"
+        : "மன்னிக்கவும் அன்புச் செல்வமே, தொழில்நுட்பக் கோளாறு காரணமாக விடை பெறுவதில் தாமதம் ஏற்பட்டுள்ளது. மீண்டும் ஒருமுறை கேட்கவும் அல்லது தலைமை ஆசானை WhatsApp (0778054232) மூலம் தொடர்பு கொள்ளவும்.";
       setMessages(prev => [
         ...prev,
         {
@@ -296,6 +296,127 @@ export default function TamilAsanChat({
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const renderBoldSpans = (text: string, keyPrefix: string) => {
+    if (!text.includes('**')) return text;
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={`${keyPrefix}-${i}`} className="font-bold text-slate-900">{part.slice(2, -2)}</strong>;
+      }
+      return part;
+    });
+  };
+
+  const renderFormattedText = (content: string, isUserMessage: boolean) => {
+    if (isUserMessage) {
+      return <div className="whitespace-pre-wrap leading-relaxed space-y-2">{content}</div>;
+    }
+
+    const lines = content.split('\n');
+    return (
+      <div className="space-y-2 leading-relaxed">
+        {lines.map((line, lineIdx) => {
+          if (!line.trim()) {
+            return <div key={lineIdx} className="h-1.5" />;
+          }
+
+          const hasMarkdownLink = /\[(.*?)\]\((https?:\/\/[^\s)]+)\)/.test(line);
+          const hasRawUrl = !hasMarkdownLink && /https?:\/\/[^\s)]+/.test(line);
+
+          if (hasMarkdownLink) {
+            const parts: React.ReactNode[] = [];
+            let lastIndex = 0;
+            let match: RegExpExecArray | null;
+            const regex = /\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g;
+
+            while ((match = regex.exec(line)) !== null) {
+              if (match.index > lastIndex) {
+                parts.push(renderBoldSpans(line.substring(lastIndex, match.index), `sub-${lineIdx}-${lastIndex}`));
+              }
+              const linkText = match[1];
+              const linkUrl = match[2];
+              const isPdf = linkText.toLowerCase().includes('pdf') || linkUrl.toLowerCase().includes('pdf') || linkText.includes('பதிவிறக்க') || linkUrl.includes('drive.google.com/file');
+              const isVideo = linkText.toLowerCase().includes('வீடியோ') || linkUrl.toLowerCase().includes('youtu');
+              const isWa = linkUrl.includes('wa.me');
+
+              if (isPdf) {
+                // Strictly DO NOT render any PDF download button/link
+                parts.push(
+                  <span key={`pdf-ref-${lineIdx}-${match.index}`} className="font-semibold text-slate-800">
+                    {linkText} <span className="text-xs font-normal text-slate-500">(ஆசிரியரின் பாடப் பதிவு)</span>
+                  </span>
+                );
+              } else {
+                parts.push(
+                  <a
+                    key={`link-${lineIdx}-${match.index}`}
+                    href={linkUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`inline-flex items-center gap-1.5 font-bold px-3 py-1 rounded-xl text-xs transition-all my-1 shadow-2xs cursor-pointer ${
+                      isVideo
+                        ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'
+                        : isWa
+                          ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200'
+                          : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200'
+                    }`}
+                  >
+                    {isVideo && <Youtube size={14} className="text-red-600 shrink-0" />}
+                    {isWa && <ExternalLink size={14} className="text-emerald-600 shrink-0" />}
+                    {!isVideo && !isWa && <ExternalLink size={14} className="shrink-0" />}
+                    <span>{linkText}</span>
+                  </a>
+                );
+              }
+              lastIndex = match.index + match[0].length;
+            }
+
+            if (lastIndex < line.length) {
+              parts.push(renderBoldSpans(line.substring(lastIndex), `sub-${lineIdx}-${lastIndex}`));
+            }
+
+            return <div key={lineIdx} className="leading-relaxed">{parts}</div>;
+          }
+
+          if (hasRawUrl) {
+            const parts: React.ReactNode[] = [];
+            let lastIndex = 0;
+            let match: RegExpExecArray | null;
+            const regex = /(https?:\/\/[^\s)]+)/g;
+
+            while ((match = regex.exec(line)) !== null) {
+              if (match.index > lastIndex) {
+                parts.push(renderBoldSpans(line.substring(lastIndex, match.index), `sub-${lineIdx}-${lastIndex}`));
+              }
+              const linkUrl = match[1];
+              parts.push(
+                <a
+                  key={`raw-${lineIdx}-${match.index}`}
+                  href={linkUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 font-bold text-blue-600 hover:text-blue-800 underline break-all my-0.5"
+                >
+                  <span>{linkUrl}</span>
+                  <ExternalLink size={12} className="shrink-0" />
+                </a>
+              );
+              lastIndex = match.index + match[0].length;
+            }
+
+            if (lastIndex < line.length) {
+              parts.push(renderBoldSpans(line.substring(lastIndex), `sub-${lineIdx}-${lastIndex}`));
+            }
+
+            return <div key={lineIdx} className="leading-relaxed">{parts}</div>;
+          }
+
+          return <div key={lineIdx} className="leading-relaxed">{renderBoldSpans(line, `line-${lineIdx}`)}</div>;
+        })}
+      </div>
+    );
   };
 
   return (
@@ -463,9 +584,7 @@ export default function TamilAsanChat({
                   )}
 
                   {/* Body Text */}
-                  <div className="whitespace-pre-wrap leading-relaxed space-y-2">
-                    {msg.text}
-                  </div>
+                  {renderFormattedText(msg.text, isUser)}
 
                   {/* Action Bar (Speak / Timestamp) */}
                   <div className={`mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] ${
