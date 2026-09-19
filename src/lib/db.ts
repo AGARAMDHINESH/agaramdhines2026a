@@ -294,7 +294,7 @@ export const resetDbHealthMetrics = () => {
 };
 
 // Direct Database Fetcher without caching layers
-const getData = async (key: string, defaultValue: any) => {
+export const getData = async (key: string, defaultValue: any) => {
   setupRealtimeListener(key);
 
   if (isFirebaseConfigured) {
@@ -368,7 +368,7 @@ const getData = async (key: string, defaultValue: any) => {
 };
 
 // Direct Database Saver - writes directly to Cloud Database and local store
-const saveData = async (key: string, data: any) => {
+export const saveData = async (key: string, data: any) => {
   const cleanData = JSON.parse(JSON.stringify(data ?? null));
   const now = Date.now();
 
@@ -617,6 +617,49 @@ export const getChatbotSettings = () => getData('chatbotSettings', {
   }
 });
 export const saveChatbotSettings = (settings: any) => saveData('chatbotSettings', settings);
+
+export const getTamilAsanKnowledge = () => getData('tamilAsanKnowledge', [
+  {
+    id: "asan_general_profile",
+    title: "அகரம் தினேஷ் தமிழ் ஆசான் பொது வழிகாட்டல் & நிறுவன அறிமுகம்",
+    grade: "அனைத்து வகுப்புகள் (General)",
+    category: "பொதுவான தகவல்",
+    content: "அகரம் தினேஸ் Online Academy என்பது இலங்கையின் தலைசிறந்த தமிழ் மொழி மற்றும் இலக்கிய கற்பித்தல் நிலையமாகும். தலைமை ஆசிரியர்: Mr. D. Dhineskumar (தொடர்பு: 0778054232 / 0756452527). தரம் 6 முதல் தரம் 13 வரை தமிழ் மொழி, இலக்கிய நயம், 30 நாள் பாடநெறி, வினாத்தாள் பயிற்சிகள் நவீன தொழில்நுட்பம் மற்றும் AI உதவியுடன் கற்பிக்கப்படுகின்றன.",
+    createdAt: Date.now()
+  }
+]);
+export const saveTamilAsanKnowledge = (items: any[]) => saveData('tamilAsanKnowledge', items);
+
+export interface UnifiedLinkItem {
+  id: string;
+  order: number;
+  title: string;
+  url: string;
+  type: 'youtube' | 'drive' | 'web' | 'pdf' | 'other';
+  grade: string;
+  subject?: string;
+  description?: string;
+  createdAt: number;
+}
+
+export const getAllUnifiedLinks = async (): Promise<UnifiedLinkItem[]> => {
+  const existing = await getData('allUnifiedLinks', []);
+  if (Array.isArray(existing) && existing.length > 0) {
+    return [...existing].sort((a, b) => (Number(a.order) || 9999) - (Number(b.order) || 9999));
+  }
+  return [];
+};
+
+export const saveAllUnifiedLinks = async (links: UnifiedLinkItem[]) => {
+  const cleanList = Array.isArray(links) ? links : [];
+  const ordered = cleanList.map((item, idx) => ({
+    ...item,
+    order: typeof item.order === 'number' ? item.order : (idx + 1)
+  })).sort((a, b) => a.order - b.order);
+
+  await saveData('allUnifiedLinks', ordered);
+  return ordered;
+};
 
 export const getPasswordRequests = () => getData('passwordRequests', []);
 export const savePasswordRequests = (requests: any) => saveData('passwordRequests', requests);

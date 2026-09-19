@@ -45,6 +45,8 @@ import Forms from "./pages/Admin/Forms";
 import PublicForm from "./pages/PublicForm";
 import PublicExamPortal from "./pages/PublicExamPortal";
 import ResetPassword from "./pages/ResetPassword";
+import TamilAsanPage from "./pages/TamilAsanPage";
+import TamilAsanHub from "./pages/Admin/TamilAsanHub";
 import StudentDashboard from "./pages/Student/Dashboard";
 import StaffDashboard from "./pages/Staff/Dashboard";
 import OurStory from "./pages/OurStory";
@@ -73,6 +75,7 @@ export default function App() {
         <Route path="/forms/:id" element={<PublicForm />} />
         <Route path="/exam/:id" element={<PublicExamPortal />} />
         <Route path="/exams/:id" element={<PublicExamPortal />} />
+        <Route path="/tamil-asan" element={<TamilAsanPage />} />
 
         <Route path="/admin" element={<AdminDashboard />}>
           <Route index element={<AdminHome />} />
@@ -87,6 +90,7 @@ export default function App() {
           <Route path="settings" element={<Settings />} />
           <Route path="courses" element={<Courses />} />
           <Route path="course-materials" element={<CourseMaterials />} />
+          <Route path="tamil-asan-hub" element={<TamilAsanHub />} />
           <Route path="term-exam" element={<TermExam />} />
           <Route path="exam-marks" element={<ExamMarks />} />
           <Route path="grade-performance" element={<GradePerformanceDashboard />} />

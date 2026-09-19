@@ -3,7 +3,8 @@ import { getCourseMaterials, saveCourseMaterials, getClasses, getStaffs, getSubj
 import { 
   GRADES_LIST, GRADE_COLOR_CONFIG, normalizeGradeString, doesItemMatchGrade 
 } from '../../components/RecordingSection';
-import { BookOpen, Plus, Trash2, ArrowLeft, ExternalLink, ChevronDown, LayoutGrid, Folder, Globe, Save, Edit3, FileText, Download, Check, RefreshCw, Search, Star, Sparkles, Filter, Layers } from 'lucide-react';
+import { BookOpen, Plus, Trash2, ArrowLeft, ExternalLink, ChevronDown, LayoutGrid, Folder, Globe, Save, Edit3, FileText, Download, Check, RefreshCw, Search, Star, Sparkles, Filter, Layers, GraduationCap, UploadCloud, Link2, Youtube } from 'lucide-react';
+import { uploadFileToFirebaseStorage } from '../../lib/firebase';
 
 const GRADES = [
   "தரம் 01", "தரம் 02", "தரம் 03", "தரம் 04", "தரம் 05", 
@@ -114,6 +115,7 @@ export const categorizeMaterial = (m: any): { id: string; name: string; shortNam
 
 export default function CourseMaterials() {
   const [view, setView] = useState<'menu' | 'add' | 'view'>('menu');
+  const [isUploadingPdf, setIsUploadingPdf] = useState(false);
   const [materials, setMaterials] = useState<any[]>([]);
   const [classes, setClasses] = useState<any[]>([]);
   const [staffs, setStaffs] = useState<any[]>([]);
@@ -136,6 +138,40 @@ export default function CourseMaterials() {
     title: '',
     link: ''
   });
+
+  useEffect(() => {
+    const checkTab = () => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('tab') === 'asan') {
+        setView('asan_hub');
+      }
+    };
+    checkTab();
+    window.addEventListener('popstate', checkTab);
+    return () => window.removeEventListener('popstate', checkTab);
+  }, []);
+
+  const handleUploadDirectFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setIsUploadingPdf(true);
+      try {
+        const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const path = `course-materials/${Date.now()}_${cleanName}`;
+        const downloadUrl = await uploadFileToFirebaseStorage(file, path);
+        setFormData(prev => ({
+          ...prev,
+          link: downloadUrl,
+          title: prev.title || file.name.replace(/\.[^/.]+$/, "")
+        }));
+        alert("PDF கோப்பு Firebase Storage-ல் வெற்றிகரமாகப் பதிவேற்றப்பட்டது!");
+      } catch (err: any) {
+        alert("பதிவேற்றுவதில் பிழை: " + (err?.message || err));
+      } finally {
+        setIsUploadingPdf(false);
+      }
+    }
+  };
 
   const loadData = async () => {
     const [fetchedMaterials, fetchedClasses, fetchedStaffs, fetchedSubjects] = await Promise.all([
@@ -423,36 +459,102 @@ export default function CourseMaterials() {
         )}
       </div>
 
-      {/* Main Panel Content */}
-      {view === 'menu' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto mt-8">
+      {/* Quick Navigation Tabs when in any subview */}
+      {view !== 'menu' && (
+        <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-2">
+          <button
+            onClick={() => setView('view')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              view === 'view' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <LayoutGrid size={14} /> அனைத்து பாடக் குறிப்புகள் (Materials)
+          </button>
           <button
             onClick={() => {
-              setView('add');
               setEditingId(null);
               setSelectedGrades([]);
               setSelectedSubjects([]);
               setFormData({ grade: '', subject: '', title: '', link: '' });
+              setView('add');
             }}
-            className="bg-white p-8 rounded-[2.5rem] border-2 border-slate-100 hover:border-red-400 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col items-center justify-center text-center group cursor-pointer"
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              view === 'add' ? 'bg-red-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
           >
-            <div className="w-20 h-20 bg-red-50 text-red-600 rounded-[2rem] flex items-center justify-center mb-6 group-hover:bg-red-100 transition-colors shadow-inner">
-              <Plus size={36} />
-            </div>
-            <h2 className="text-2xl font-black text-slate-800 mb-2">Add Course Material</h2>
-            <p className="text-slate-400 text-sm font-medium">Upload a new PDF drive link for multiple subjects and grades</p>
+            <Plus size={14} /> புதிய குறிப்பு சேர்க்க (Add)
           </button>
+          <a
+            href="/admin/tamil-asan-hub"
+            className="px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300 ml-auto shadow-xs"
+          >
+            <GraduationCap size={14} className="text-amber-700" /> 🌟 AI தமிழ் ஆசான் அறிவுத்தளம் (தனிப்பிரிவு) ➔
+          </a>
+        </div>
+      )}
 
-          <button
-            onClick={() => setView('view')}
-            className="bg-white p-8 rounded-[2.5rem] border-2 border-slate-100 hover:border-indigo-400 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col items-center justify-center text-center group cursor-pointer"
-          >
-            <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-[2rem] flex items-center justify-center mb-6 group-hover:bg-indigo-100 transition-colors shadow-inner">
-              <LayoutGrid size={36} />
+      {/* Main Panel Content */}
+      {view === 'menu' && (
+        <div className="space-y-6 max-w-5xl mx-auto mt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <button
+              onClick={() => {
+                setView('add');
+                setEditingId(null);
+                setSelectedGrades([]);
+                setSelectedSubjects([]);
+                setFormData({ grade: '', subject: '', title: '', link: '' });
+              }}
+              className="bg-white p-7 rounded-[2.5rem] border-2 border-slate-100 hover:border-red-400 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col items-center justify-center text-center group cursor-pointer"
+            >
+              <div className="w-16 h-16 bg-red-50 text-red-600 rounded-[1.8rem] flex items-center justify-center mb-4 group-hover:bg-red-100 transition-colors shadow-inner">
+                <Plus size={32} />
+              </div>
+              <h2 className="text-xl font-black text-slate-800 mb-1">Add Course Material</h2>
+              <p className="text-slate-400 text-xs font-medium">மாணவர்களுக்கான பாடக் குறிப்புகளைப் பதிவேற்றவும் (Google Drive அல்லது Firebase PDF)</p>
+            </button>
+
+            <button
+              onClick={() => setView('view')}
+              className="bg-white p-7 rounded-[2.5rem] border-2 border-slate-100 hover:border-indigo-400 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col items-center justify-center text-center group cursor-pointer"
+            >
+              <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-[1.8rem] flex items-center justify-center mb-4 group-hover:bg-indigo-100 transition-colors shadow-inner">
+                <LayoutGrid size={32} />
+              </div>
+              <h2 className="text-xl font-black text-slate-800 mb-1">View Materials</h2>
+              <p className="text-slate-400 text-xs font-medium">மாணவர் போர்ட்டலில் உள்ள அனைத்து பாடக் குறிப்புகளையும் பார்வையிட மற்றும் நிர்வகிக்க</p>
+            </button>
+          </div>
+
+          {/* AI Tamil Asan Dedicated Link Card */}
+          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-amber-950 p-6 sm:p-7 rounded-[2.2rem] border border-amber-500/30 text-white flex flex-col md:flex-row items-center justify-between gap-5 shadow-lg">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-red-600 flex items-center justify-center text-white shadow-md shrink-0">
+                <GraduationCap size={28} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    தனிப்பிரிவு • Standalone Admin Hub
+                  </span>
+                  <span className="text-emerald-400 text-[11px] font-bold">🔒 AI பிரத்தியேக அறிவுத்தளம்</span>
+                </div>
+                <h3 className="text-lg font-black text-amber-100">
+                  AI தமிழ் ஆசான் அறிவுத்தளம் & லிங்க் மையம்
+                </h3>
+                <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                  மாணவர்களின் நேரடி போர்டலில் காட்டாமல், AI தமிழ் ஆசானுக்கு மட்டும் வழிகாட்டல் மூலங்களாக YouTube, Drive, Web Links, PDF-களை வரிசைப்படி (#1, #2, #3...) சேர்க்க விரும்பினால் தனிப்பிரிவைப் பயன்படுத்தவும்.
+                </p>
+              </div>
             </div>
-            <h2 className="text-2xl font-black text-slate-800 mb-2">View Materials</h2>
-            <p className="text-slate-400 text-sm font-medium">List, search, and manage existing course materials</p>
-          </button>
+
+            <a
+              href="/admin/tamil-asan-hub"
+              className="shrink-0 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs px-5 py-3 rounded-2xl flex items-center gap-2 shadow-lg transition-transform hover:scale-105"
+            >
+              அறிவுத்தளத்திற்குச் செல்ல ➔
+            </a>
+          </div>
         </div>
       )}
 
@@ -604,11 +706,24 @@ export default function CourseMaterials() {
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Google Drive Link / PDF URL</label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-bold text-slate-700">Google Drive Link / PDF URL</label>
+                <label className="cursor-pointer text-xs font-bold text-red-600 hover:text-red-700 flex items-center gap-1.5 bg-red-50 hover:bg-red-100 px-3 py-1 rounded-xl transition-all border border-red-200 shadow-sm">
+                  <UploadCloud size={14} />
+                  <span>{isUploadingPdf ? "Firebase-ல் பதிவேற்றப்படுகிறது..." : "கணினியிலிருந்து PDF பதிவேற்றுக (Firebase)"}</span>
+                  <input 
+                    type="file" 
+                    accept=".pdf,.doc,.docx" 
+                    className="hidden" 
+                    disabled={isUploadingPdf}
+                    onChange={handleUploadDirectFile}
+                  />
+                </label>
+              </div>
               <input
                 type="url"
                 required
-                placeholder="https://drive.google.com/..."
+                placeholder="https://drive.google.com/... அல்லது https://firebasestorage.googleapis.com/..."
                 value={formData.link}
                 onChange={(e) => setFormData({ ...formData, link: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3.5 text-slate-800 font-bold focus:bg-white focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all outline-none"

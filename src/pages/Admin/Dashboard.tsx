@@ -169,6 +169,7 @@ export default function AdminDashboard() {
         { name: "Live Class", path: "/admin/live-classes" },
         { name: "Courses", path: "/admin/courses" },
         { name: "Course Materials", path: "/admin/course-materials" },
+        { name: "🌟 AI தமிழ் ஆசான் அறிவுத்தளம்", path: "/admin/tamil-asan-hub" },
         { name: "YouTube", path: "/admin/youtube" },
       ]
     },

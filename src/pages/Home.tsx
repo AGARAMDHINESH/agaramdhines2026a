@@ -648,6 +648,12 @@ export default function Home() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16 flex-wrap">
             <button 
+              onClick={() => navigate('/tamil-asan')}
+              className="w-full sm:w-auto bg-gradient-to-r from-red-600 via-amber-600 to-orange-600 text-white px-8 py-4 rounded-full font-bold text-lg hover:from-red-700 hover:to-orange-700 transition-all shadow-lg shadow-orange-200 hover:-translate-y-1 flex items-center justify-center gap-2 border-2 border-amber-300/40"
+            >
+              <GraduationCap size={22} className="animate-bounce" /> 🌟 AI தமிழ் ஆசான் (கேள்வி கேளுங்கள்)
+            </button>
+            <button 
               onClick={() => window.open(homeContent?.button1Url || "https://www.agaramdhines.lk/courses/", "_blank")}
               className="w-full sm:w-auto bg-gradient-to-r from-pink-500 to-rose-500 text-white px-8 py-4 rounded-full font-bold text-lg hover:from-pink-600 hover:to-rose-600 transition-all shadow-lg shadow-pink-200 hover:-translate-y-1 flex items-center justify-center gap-2"
             >

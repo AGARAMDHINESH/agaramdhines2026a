@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, Image as ImageIcon } from 'lucide-react';
+import { Save, Plus, Trash2, Image as ImageIcon, Sparkles, Mic, Volume2, Key, Award, BookOpen } from 'lucide-react';
 import { getChatbotSettings, saveChatbotSettings } from '../../lib/db';
+import { getTamilAsanSettings, saveTamilAsanSettings, TamilAsanSettings, DEFAULT_TAMIL_ASAN_SETTINGS } from '../../lib/tamilAsanEngine';
 
 export default function ChatbotSettings() {
   const [settings, setSettings] = useState<any>(null);
+  const [asanSettings, setAsanSettings] = useState<TamilAsanSettings>(DEFAULT_TAMIL_ASAN_SETTINGS);
   const [isSaving, setIsSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState('grade06');
+  const [activeTab, setActiveTab] = useState('tamilAsan');
 
   useEffect(() => {
     getChatbotSettings().then(data => {
@@ -108,18 +110,25 @@ export default function ChatbotSettings() {
         
         if (activeTab && activeTab.startsWith('grade') && !migratedData.grades.find((g: any) => g.id === activeTab)) {
           if (migratedData.grades.length > 0) {
-            setActiveTab(migratedData.grades[0].id);
+            setActiveTab('tamilAsan');
           }
         }
       }
+    });
+
+    getTamilAsanSettings().then(data => {
+      if (data) setAsanSettings(data);
     });
   }, []);
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await saveChatbotSettings(settings);
-      alert('Settings saved successfully!');
+      await Promise.all([
+        saveChatbotSettings(settings),
+        saveTamilAsanSettings(asanSettings)
+      ]);
+      alert('அனைத்து அமைப்புகளும் வெற்றிகரமாக சேமிக்கப்பட்டன! (Settings saved successfully!)');
     } catch (error) {
       console.error('Error saving settings:', error);
       alert('Failed to save settings.');
@@ -263,6 +272,7 @@ export default function ChatbotSettings() {
   }
 
   const tabs = [
+    { id: 'tamilAsan', label: '🌟 AI அகரம் தினேஷ் தமிழ் ஆசான் (Voice & RAG)' },
     ...(settings.grades || []).map((g: any) => ({ id: g.id, label: g.title || 'Grade' })),
     { id: 'fees', label: 'Fees Info' },
     { id: 'contact', label: 'Contact Info' }
@@ -308,6 +318,140 @@ export default function ChatbotSettings() {
         </div>
 
         <div className="p-6">
+          {activeTab === 'tamilAsan' && (
+            <div className="space-y-6">
+              <div className="bg-gradient-to-r from-red-50 to-amber-50 border border-red-200 rounded-xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="text-red-600" size={22} />
+                    <h2 className="text-lg font-bold text-red-950">AI அகரம் தினேஷ் தமிழ் ஆசான் மேலாண்மை</h2>
+                  </div>
+                  <p className="text-xs text-red-700 mt-1 max-w-2xl leading-relaxed">
+                    அகாடமியின் PDF குறிப்புகள், யூடியூப் வீடியோக்கள், பாடத்திட்டத்தை மட்டும் அடிப்படையாகக் கொண்டு மாணவர்களின் கேள்விகளுக்கு ஆசான் குரலிலேயே விடையளிக்கும் சிறப்பு AI ஆசிரியர் முறைமை.
+                  </p>
+                </div>
+                <span className="bg-red-700 text-white text-xs px-3 py-1.5 rounded-full font-bold shadow-xs whitespace-nowrap">
+                  அறிவுத்தளம்: இணைக்கப்பட்டுள்ளது
+                </span>
+              </div>
+
+              {/* Basic AI Profile */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">AI ஆசிரியரின் பெயர் (AI Name)</label>
+                  <input
+                    type="text"
+                    value={asanSettings.aiName}
+                    onChange={(e) => setAsanSettings({ ...asanSettings, aiName: e.target.value })}
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">முதன்மை ஆசிரியர் (Teacher Name)</label>
+                  <input
+                    type="text"
+                    value={asanSettings.teacherName}
+                    onChange={(e) => setAsanSettings({ ...asanSettings, teacherName: e.target.value })}
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Voice Cloning / Voice Provider Settings */}
+              <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+                <div className="flex items-center justify-between border-b pb-3">
+                  <div className="flex items-center gap-2">
+                    <Mic className="text-red-700" size={20} />
+                    <h3 className="font-bold text-gray-800 text-base">குரல் குளோனிங் & உச்சரிப்பு (Voice Cloning & Audio)</h3>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={asanSettings.voiceCloningEnabled}
+                      onChange={(e) => setAsanSettings({ ...asanSettings, voiceCloningEnabled: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-700"></div>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">குரல் வழங்குநர் (Voice Provider)</label>
+                    <select
+                      value={asanSettings.voiceProvider}
+                      onChange={(e) => setAsanSettings({ ...asanSettings, voiceProvider: e.target.value as any })}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 text-sm"
+                    >
+                      <option value="browser_native">உலாவியின் இயற்கை தமிழ் குரல் (Browser Native High Quality)</option>
+                      <option value="elevenlabs">ElevenLabs ஆசிரியர் நேரடி வாய்ஸ் குளோன் (Direct Cloned Voice)</option>
+                    </select>
+                  </div>
+
+                  {asanSettings.voiceProvider === 'elevenlabs' && (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">ElevenLabs Voice ID (ஆசானின் குரல் ஐடி)</label>
+                        <input
+                          type="text"
+                          placeholder="எ.கா: 21m00Tcm4TlvDq8ikWAM"
+                          value={asanSettings.elevenLabsVoiceId || ''}
+                          onChange={(e) => setAsanSettings({ ...asanSettings, elevenLabsVoiceId: e.target.value })}
+                          className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">ElevenLabs API Key</label>
+                        <input
+                          type="password"
+                          placeholder="xi-..."
+                          value={asanSettings.elevenLabsApiKey || ''}
+                          onChange={(e) => setAsanSettings({ ...asanSettings, elevenLabsApiKey: e.target.value })}
+                          className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 text-sm"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      பேசும் வேகம்: {asanSettings.speechRate || 0.95}x
+                    </label>
+                    <input
+                      type="range"
+                      min="0.7"
+                      max="1.3"
+                      step="0.05"
+                      value={asanSettings.speechRate || 0.95}
+                      onChange={(e) => setAsanSettings({ ...asanSettings, speechRate: parseFloat(e.target.value) })}
+                      className="w-full accent-red-700 cursor-pointer"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Strict RAG Grounding Prompt */}
+              <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+                <div className="flex items-center gap-2 border-b pb-3">
+                  <BookOpen className="text-red-700" size={20} />
+                  <h3 className="font-bold text-gray-800 text-base">கற்பித்தல் பாணி & சிறப்பு அறிவுறுத்தல்கள் (System Prompt)</h3>
+                </div>
+                <div>
+                  <textarea
+                    rows={4}
+                    value={asanSettings.systemPromptAddon}
+                    onChange={(e) => setAsanSettings({ ...asanSettings, systemPromptAddon: e.target.value })}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm leading-relaxed"
+                    placeholder="ஆசிரியர் பதில் அளிக்கும் விதம், சிறப்பு வார்த்தைகள் அல்லது இலக்கண ஒழுங்கு..."
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    * AI தானாகவே அகாடமியின் பாடக்குறிப்புகள் (PDF) மற்றும் யூடியூப் வீடியோக்களை ஆய்வு செய்து பதில் வழங்கும்.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {activeGrade && (
             <div className="space-y-6">
               <div className="flex justify-between items-center mb-6">

@@ -44,7 +44,8 @@ import {
   Grid,
   List,
   Star,
-  Filter
+  Filter,
+  GraduationCap
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import WhatsAppIcon from "../../components/WhatsAppIcon";
@@ -60,6 +61,7 @@ import { getUserSession, saveUserSession, clearUserSession } from "../../lib/aut
 import CountdownTimer from "../../components/CountdownTimer";
 import PopupAnnouncement from "../../components/PopupAnnouncement";
 import LiveChat from "../../components/LiveChat";
+import TamilAsanChat from "../../components/TamilAsanChat";
 import { useChatNotifications } from "../../hooks/useChatNotifications";
 import { useHomeworkNotifications } from "../../hooks/useHomeworkNotifications";
 import { useRealtimeNotifications } from "../../hooks/useRealtimeNotifications";
@@ -1716,7 +1718,11 @@ export default function StudentDashboard() {
       </div>
 
       {/* Main Content */}
-      <main className={`flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-transparent pb-32 ${activeTab === 'chat' ? 'flex flex-col p-0 md:p-0 lg:p-0' : 'max-w-7xl mx-auto w-full'}`}>
+      <main className={`flex-1 ${
+        (activeTab === 'chat' || activeTab === 'tamil_asan') 
+          ? 'flex flex-col p-0 md:p-0 lg:p-0 pb-0 overflow-hidden h-[calc(100vh-64px)]' 
+          : 'overflow-y-auto p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full pb-32'
+      } bg-transparent`}>
         {currentStudentData?.zoomBlocked && (
           <div className="bg-rose-50 border-l-4 border-rose-500 text-rose-800 p-4 rounded-lg shadow-sm mb-6 flex items-start gap-3">
             <Bell className="shrink-0 mt-0.5 text-rose-500" size={20} />
@@ -1880,6 +1886,20 @@ export default function StudentDashboard() {
                   <DollarSign size={28} />
                 </div>
                 <span className="font-bold text-slate-700 text-sm sm:text-base text-center line-clamp-1">{menuLabels.fees || "Fees"}</span>
+              </div>
+
+              {/* AI Tamil Asan Card */}
+              <div
+                onClick={() => setActiveTab("tamil_asan")}
+                className="bg-gradient-to-br from-amber-500/10 via-red-500/10 to-orange-500/10 p-5 rounded-2xl shadow-sm border border-amber-200/80 flex flex-col items-center justify-center cursor-pointer hover:shadow-md hover:-translate-y-1 transition-all group relative sm:col-span-1 md:col-span-1"
+              >
+                <span className="absolute top-2 right-2 bg-gradient-to-r from-red-600 to-amber-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-sm">
+                  AI குரல்
+                </span>
+                <div className="w-14 h-14 bg-gradient-to-tr from-amber-600 to-red-600 text-white rounded-2xl flex items-center justify-center mb-3 shadow-md group-hover:scale-105 transition-transform">
+                  <GraduationCap size={28} />
+                </div>
+                <span className="font-bold text-slate-800 text-sm sm:text-base text-center line-clamp-1">AI தமிழ் ஆசான்</span>
               </div>
 
               <div
@@ -4442,6 +4462,17 @@ export default function StudentDashboard() {
             <div className="flex-1 overflow-hidden bg-slate-50">
               <LiveChat currentUser={{ id: studentData.id, name: studentData.name, role: "Student", grade: studentData.grade }} />
             </div>
+          </div>
+        )}
+
+        {activeTab === "tamil_asan" && (
+          <div className="flex-1 min-h-0 flex flex-col h-full bg-slate-900 rounded-none sm:rounded-2xl overflow-hidden shadow-sm">
+            <TamilAsanChat 
+              initialGrade={studentData.grade || "Grade 10"} 
+              studentName={studentData.name || displayName} 
+              isEmbedded={false}
+              onClose={() => setActiveTab("home")}
+            />
           </div>
         )}
 

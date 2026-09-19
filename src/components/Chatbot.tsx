@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageSquare, X, Send, Bot, User, ImagePlus } from 'lucide-react';
+import { MessageSquare, X, Send, Bot, User, ImagePlus, Sparkles, GraduationCap } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getChatbotSettings } from '../lib/db';
 import { GoogleGenAI } from '@google/genai';
+import TamilAsanChat from './TamilAsanChat';
 
 interface Message {
   id: string;
@@ -15,6 +16,7 @@ interface Message {
 
 export default function Chatbot() {
   const [isOpen, setIsOpen] = useState(false);
+  const [activeMode, setActiveMode] = useState<'general' | 'asan'>('asan');
   const [settings, setSettings] = useState<any>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -570,133 +572,174 @@ export default function Chatbot() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             transition={{ duration: 0.2 }}
-            className="fixed bottom-6 right-6 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl overflow-hidden z-50 flex flex-col border border-gray-200"
-            style={{ height: '500px', maxHeight: '80vh' }}
+            className="fixed bottom-6 right-4 sm:right-6 w-[92vw] sm:w-[420px] bg-white rounded-2xl shadow-2xl overflow-hidden z-50 flex flex-col border border-gray-200"
+            style={{ height: '580px', maxHeight: '86vh' }}
           >
-            {/* Header */}
-            <div className="bg-blue-600 text-white p-4 flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <div className="bg-white/20 p-2 rounded-full">
-                  <Bot size={20} />
-                </div>
-                <div>
-                  <h3 className="font-bold">Agaram Bot</h3>
-                  <p className="text-xs text-blue-100">Online</p>
-                </div>
+            {/* Mode Switcher Header Tabs */}
+            <div className="bg-slate-900 text-white p-2.5 flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center gap-1.5 bg-slate-800 p-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setActiveMode('asan')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    activeMode === 'asan'
+                      ? 'bg-gradient-to-r from-red-700 to-amber-800 text-amber-100 shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <GraduationCap size={15} />
+                  <span>AI தமிழ் ஆசான்</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveMode('general')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    activeMode === 'general'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Bot size={15} />
+                  <span>அகாடமி வழிகாட்டி</span>
+                </button>
               </div>
+
               <button 
                 onClick={() => setIsOpen(false)}
-                className="p-2 hover:bg-white/20 rounded-full transition-colors"
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+                title="Close"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
 
-            {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-4">
-              {messages.map((msg) => (
-                <div 
-                  key={msg.id} 
-                  className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
-                >
-                  <div className={`flex gap-2 max-w-[85%] ${msg.sender === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${msg.sender === 'user' ? 'bg-blue-100 text-blue-600' : 'bg-gray-200 text-gray-600'}`}>
-                      {msg.sender === 'user' ? <User size={16} /> : <Bot size={16} />}
+            {/* Tamil Asan Mode: Embeds TamilAsanChat */}
+            {activeMode === 'asan' ? (
+              <div className="flex-1 overflow-hidden flex flex-col">
+                <TamilAsanChat isEmbedded={true} />
+              </div>
+            ) : (
+              /* General Agaram Academy Bot */
+              <>
+                <div className="bg-blue-600 text-white px-4 py-3 flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <div className="bg-white/20 p-2 rounded-full">
+                      <Bot size={18} />
                     </div>
-                    <div 
-                      className={`p-3 rounded-2xl ${
-                        msg.sender === 'user' 
-                          ? 'bg-blue-600 text-white rounded-tr-none' 
-                          : 'bg-white border border-gray-200 text-gray-800 rounded-tl-none shadow-sm'
-                      }`}
-                    >
-                      {msg.imageUrl && (
-                        <img src={msg.imageUrl} alt="Uploaded" className="max-w-full h-auto rounded-lg mb-2" style={{ maxHeight: '150px' }} />
-                      )}
-                      <div className="text-sm whitespace-pre-wrap">{msg.text}</div>
-                      <p className={`text-[10px] mt-1 ${msg.sender === 'user' ? 'text-blue-200 text-right' : 'text-gray-400'}`}>
-                        {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </p>
+                    <div>
+                      <h3 className="font-bold text-sm">Agaram Bot (வகுப்புகள் & கட்டணங்கள்)</h3>
+                      <p className="text-[11px] text-blue-100">Online 24/7</p>
                     </div>
                   </div>
-                  {msg.options && msg.options.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-2 ml-10">
-                      {msg.options.map((opt, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => handleUserMessage(opt)}
-                          className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-full text-xs font-medium transition-colors text-left"
+                </div>
+
+                {/* Messages Area */}
+                <div className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-4">
+                  {messages.map((msg) => (
+                    <div 
+                      key={msg.id} 
+                      className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
+                    >
+                      <div className={`flex gap-2 max-w-[85%] ${msg.sender === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${msg.sender === 'user' ? 'bg-blue-100 text-blue-600' : 'bg-gray-200 text-gray-600'}`}>
+                          {msg.sender === 'user' ? <User size={16} /> : <Bot size={16} />}
+                        </div>
+                        <div 
+                          className={`p-3 rounded-2xl ${
+                            msg.sender === 'user' 
+                              ? 'bg-blue-600 text-white rounded-tr-none' 
+                              : 'bg-white border border-gray-200 text-gray-800 rounded-tl-none shadow-sm'
+                          }`}
                         >
-                          {opt}
-                        </button>
-                      ))}
+                          {msg.imageUrl && (
+                            <img src={msg.imageUrl} alt="Uploaded" className="max-w-full h-auto rounded-lg mb-2" style={{ maxHeight: '150px' }} />
+                          )}
+                          <div className="text-sm whitespace-pre-wrap">{msg.text}</div>
+                          <p className={`text-[10px] mt-1 ${msg.sender === 'user' ? 'text-blue-200 text-right' : 'text-gray-400'}`}>
+                            {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                      {msg.options && msg.options.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2 ml-10">
+                          {msg.options.map((opt, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => handleUserMessage(opt)}
+                              className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-full text-xs font-medium transition-colors text-left"
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {isTyping && (
+                    <div className="flex flex-col items-start">
+                      <div className="flex gap-2 max-w-[85%] flex-row">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-gray-200 text-gray-600">
+                          <Bot size={16} />
+                        </div>
+                        <div className="p-3 rounded-2xl bg-white border border-gray-200 text-gray-800 rounded-tl-none shadow-sm flex items-center gap-1">
+                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                        </div>
+                      </div>
                     </div>
                   )}
+                  <div ref={messagesEndRef} />
                 </div>
-              ))}
-              {isTyping && (
-                <div className="flex flex-col items-start">
-                  <div className="flex gap-2 max-w-[85%] flex-row">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-gray-200 text-gray-600">
-                      <Bot size={16} />
-                    </div>
-                    <div className="p-3 rounded-2xl bg-white border border-gray-200 text-gray-800 rounded-tl-none shadow-sm flex items-center gap-1">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
 
-            {/* Input Area */}
-            <div className="p-3 bg-white border-t border-gray-100 flex flex-col gap-2">
-              {selectedImage && (
-                <div className="relative inline-block w-16 h-16">
-                  <img src={URL.createObjectURL(selectedImage)} alt="Preview" className="w-full h-full object-cover rounded-lg border border-gray-200" />
-                  <button
-                    type="button"
-                    onClick={() => setSelectedImage(null)}
-                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600"
-                  >
-                    <X size={14} />
-                  </button>
+                {/* Input Area */}
+                <div className="p-3 bg-white border-t border-gray-100 flex flex-col gap-2">
+                  {selectedImage && (
+                    <div className="relative inline-block w-16 h-16">
+                      <img src={URL.createObjectURL(selectedImage)} alt="Preview" className="w-full h-full object-cover rounded-lg border border-gray-200" />
+                      <button
+                        type="button"
+                        onClick={() => setSelectedImage(null)}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+                  <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      ref={fileInputRef}
+                      onChange={handleImageSelect}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="text-gray-500 hover:text-blue-600 p-2 rounded-full hover:bg-gray-100 transition-colors shrink-0"
+                      title="Upload Image"
+                    >
+                      <ImagePlus size={20} />
+                    </button>
+                    <input
+                      type="text"
+                      value={inputValue}
+                      onChange={(e) => setInputValue(e.target.value)}
+                      placeholder="Type your message..."
+                      className="flex-1 bg-gray-100 border-transparent focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-full px-4 py-2 text-sm transition-all"
+                    />
+                    <button 
+                      type="submit"
+                      disabled={!inputValue.trim() && !selectedImage}
+                      className="bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
+                    >
+                      <Send size={18} />
+                    </button>
+                  </form>
                 </div>
-              )}
-              <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-                <input
-                  type="file"
-                  accept="image/*"
-                  ref={fileInputRef}
-                  onChange={handleImageSelect}
-                  className="hidden"
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="text-gray-500 hover:text-blue-600 p-2 rounded-full hover:bg-gray-100 transition-colors shrink-0"
-                  title="Upload Image"
-                >
-                  <ImagePlus size={20} />
-                </button>
-                <input
-                  type="text"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  placeholder="Type your message..."
-                  className="flex-1 bg-gray-100 border-transparent focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-full px-4 py-2 text-sm transition-all"
-                />
-                <button 
-                  type="submit"
-                  disabled={!inputValue.trim() && !selectedImage}
-                  className="bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
-                >
-                  <Send size={18} />
-                </button>
-              </form>
-            </div>
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
