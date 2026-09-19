@@ -10,6 +10,7 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
+import { resolveMediaUrl } from "./fileStorage";
 import { 
   getCourseMaterials, 
   getYoutubeLinks, 
@@ -439,9 +440,12 @@ export const playTeacherVoice = async (
   directAudioUrl?: string
 ): Promise<() => void> => {
   // 0. If direct audio file exists (e.g. Teacher's recorded voice) or is welcome text
-  const audioFileToPlay = directAudioUrl || (settings.welcomeAudioUrl && (text === settings.welcomeVoiceText || text.includes("வணக்கம் அன்புச் செல்வமே") || text.includes("வணக்கம் மாணவர்களே")) ? settings.welcomeAudioUrl : null);
+  let audioFileToPlay = directAudioUrl || (settings.welcomeAudioUrl && (text === settings.welcomeVoiceText || text.includes("வணக்கம் அன்புச் செல்வமே") || text.includes("வணக்கம் மாணவர்களே")) ? settings.welcomeAudioUrl : null);
   if (audioFileToPlay) {
     try {
+      if (audioFileToPlay.startsWith('firestore-media://')) {
+        audioFileToPlay = await resolveMediaUrl(audioFileToPlay);
+      }
       const audio = new Audio(audioFileToPlay);
       if (onAudioStart) onAudioStart();
       audio.onended = () => {

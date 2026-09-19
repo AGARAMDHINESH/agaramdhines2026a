@@ -384,3 +384,60 @@ export const downloadAnyWorkFile = async (
     return false;
   }
 };
+
+/**
+ * Resolves any media URL (http, https, data URI, blob, or firestore-media://)
+ * into a directly playable or viewable URL.
+ */
+export const resolveMediaUrl = async (urlOrRef: string): Promise<string> => {
+  if (!urlOrRef) return '';
+  const trimmed = urlOrRef.trim();
+
+  // If already standard playable URL or data URI
+  if (
+    trimmed.startsWith('http://') || 
+    trimmed.startsWith('https://') || 
+    trimmed.startsWith('data:') || 
+    trimmed.startsWith('blob:')
+  ) {
+    return trimmed;
+  }
+
+  // Extract clean ID from firestore-media://... or raw media ID
+  const mediaId = trimmed.startsWith('firestore-media://')
+    ? trimmed.replace('firestore-media://', '')
+    : trimmed;
+
+  try {
+    // 1. Check local IndexedDB cache (0ms instant access)
+    const cached = await getFileFromIndexedDB(mediaId);
+    if (cached?.fileData && (cached.fileData.startsWith('data:') || cached.fileData.startsWith('blob:'))) {
+      return cached.fileData;
+    }
+
+    // 2. Check Firestore stored_media_files collection
+    if (isFirebaseConfigured && db) {
+      try {
+        const docSnap = await getDoc(doc(db, 'stored_media_files', mediaId));
+        if (docSnap.exists() && docSnap.data()?.data) {
+          const base64 = docSnap.data().data;
+          saveFileToIndexedDB(mediaId, base64, docSnap.data().fileName || 'media', docSnap.data().fileType || 'audio/mp3').catch(() => {});
+          return base64;
+        }
+      } catch (_) {}
+
+      // 3. Check Firestore file_chunks for larger files
+      try {
+        const chunkedBase64 = await fetchFileFromFirestoreChunks(mediaId);
+        if (chunkedBase64 && chunkedBase64.length > 50) {
+          saveFileToIndexedDB(mediaId, chunkedBase64, 'media', 'audio/mp3').catch(() => {});
+          return chunkedBase64;
+        }
+      } catch (_) {}
+    }
+  } catch (err) {
+    console.warn("Could not resolve media URL from local/cloud store:", err);
+  }
+
+  return trimmed;
+};

@@ -48,6 +48,7 @@ import {
   UnifiedLinkItem
 } from "../lib/db";
 import { uploadFileToFirebaseStorage } from "../lib/firebase";
+import { resolveMediaUrl } from "../lib/fileStorage";
 import {
   getTamilAsanSettings,
   saveTamilAsanSettings,
@@ -115,6 +116,7 @@ export default function TamilAsanKnowledgeHub({ onBack, onMaterialsUpdated }: Pr
   const [asanSettings, setAsanSettings] = useState<TamilAsanSettings>(DEFAULT_TAMIL_ASAN_SETTINGS);
   const [welcomeText, setWelcomeText] = useState("");
   const [welcomeAudioUrl, setWelcomeAudioUrl] = useState("");
+  const [resolvedAudioPreview, setResolvedAudioPreview] = useState("");
   const [answerLengthSetting, setAnswerLengthSetting] = useState<'concise' | 'detailed'>('concise');
   const [elevenLabsApiKey, setElevenLabsApiKey] = useState("");
   const [elevenLabsVoiceId, setElevenLabsVoiceId] = useState("");
@@ -160,6 +162,20 @@ export default function TamilAsanKnowledgeHub({ onBack, onMaterialsUpdated }: Pr
   useEffect(() => {
     loadAllData();
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!welcomeAudioUrl) {
+      setResolvedAudioPreview("");
+      return;
+    }
+    resolveMediaUrl(welcomeAudioUrl).then(url => {
+      if (active) setResolvedAudioPreview(url);
+    }).catch(() => {
+      if (active) setResolvedAudioPreview(welcomeAudioUrl);
+    });
+    return () => { active = false; };
+  }, [welcomeAudioUrl]);
 
   const showNotification = (text: string, type: 'success' | 'error' | 'info' = 'success') => {
     setStatusMessage({ text, type });
@@ -1690,7 +1706,7 @@ export default function TamilAsanKnowledgeHub({ onBack, onMaterialsUpdated }: Pr
                   />
                   {welcomeAudioUrl && (
                     <div className="pt-2">
-                      <audio controls src={welcomeAudioUrl} className="w-full h-9" />
+                      <audio controls src={resolvedAudioPreview || welcomeAudioUrl} className="w-full h-9" />
                     </div>
                   )}
                 </div>
