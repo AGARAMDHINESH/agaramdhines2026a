@@ -506,7 +506,7 @@ export default function Chatbot() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               parts,
-              model: "gemini-3.8-flash"
+              model: "gemini-flash-lite-latest"
             })
           });
 
@@ -523,7 +523,7 @@ export default function Chatbot() {
             try {
               const ai = new GoogleGenAI({ apiKey });
               const response = await ai.models.generateContent({
-                model: "gemini-3.8-flash",
+                model: "gemini-flash-lite-latest",
                 contents: { parts }
               });
               botReply = response.text || "மன்னிக்கவும், எனக்கு புரியவில்லை.";

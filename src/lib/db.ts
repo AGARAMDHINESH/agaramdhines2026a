@@ -618,17 +618,167 @@ export const getChatbotSettings = () => getData('chatbotSettings', {
 });
 export const saveChatbotSettings = (settings: any) => saveData('chatbotSettings', settings);
 
-export const getTamilAsanKnowledge = () => getData('tamilAsanKnowledge', [
-  {
-    id: "asan_general_profile",
-    title: "அகரம் தினேஷ் தமிழ் ஆசான் பொது வழிகாட்டல் & நிறுவன அறிமுகம்",
-    grade: "அனைத்து வகுப்புகள் (General)",
-    category: "பொதுவான தகவல்",
-    content: "அகரம் தினேஸ் Online Academy என்பது இலங்கையின் தலைசிறந்த தமிழ் மொழி மற்றும் இலக்கிய கற்பித்தல் நிலையமாகும். தலைமை ஆசிரியர்: Mr. D. Dhineskumar (WhatsApp தொடர்பு: 0778054232 / +94778054232). தரம் 6 முதல் தரம் 13 வரை தமிழ் மொழி, இலக்கிய நயம், 30 நாள் பாடநெறி, வினாத்தாள் பயிற்சிகள் நவீன தொழில்நுட்பம் மற்றும் AI உதவியுடன் கற்பிக்கப்படுகின்றன.",
-    createdAt: Date.now()
+export interface KnowledgeQAItem {
+  id?: string;
+  question: string;
+  answer: string;
+}
+
+export interface TamilAsanKnowledgeItem {
+  id: string;
+  title: string;
+  grade?: string;
+  category?: string;
+  topics?: string[];
+  expectedQuestions?: string[];
+  qaPairs?: KnowledgeQAItem[];
+  content: string;
+  createdAt: number;
+  updatedAt?: number;
+}
+
+export const getTamilAsanKnowledge = async (): Promise<TamilAsanKnowledgeItem[]> => {
+  setupRealtimeListener('tamilAsanKnowledge');
+
+  let deletedIds: string[] = [];
+  try {
+    const rawDeleted = localStorage.getItem('tamilAsanKnowledge_deleted');
+    if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
+  } catch (_) {}
+
+  let localItems: TamilAsanKnowledgeItem[] = [];
+  try {
+    const rawLocal = localStorage.getItem('tamilAsanKnowledge');
+    if (rawLocal) localItems = JSON.parse(rawLocal);
+  } catch (_) {}
+
+  let remoteItems: TamilAsanKnowledgeItem[] = [];
+  if (isFirebaseConfigured) {
+    try {
+      const snap = await getDocs(collection(db, 'tamilAsanKnowledge'));
+      if (!snap.empty) {
+        remoteItems = snap.docs.map(d => ({ ...d.data(), id: d.id } as TamilAsanKnowledgeItem));
+      }
+    } catch (_) {}
+
+    try {
+      const singletonSnap = await getDoc(doc(db, 'singletons', 'tamilAsanKnowledge'));
+      if (singletonSnap.exists() && Array.isArray(singletonSnap.data()?.data)) {
+        remoteItems = mergeArraysById(remoteItems, singletonSnap.data().data);
+      }
+    } catch (_) {}
   }
-]);
-export const saveTamilAsanKnowledge = (items: any[]) => saveData('tamilAsanKnowledge', items);
+
+  let combined = mergeArraysById(remoteItems, localItems);
+  if (deletedIds.length > 0) {
+    combined = combined.filter(k => !deletedIds.includes(String(k.id)));
+  }
+
+  if (combined.length > 0) {
+    try {
+      localStorage.setItem('tamilAsanKnowledge', JSON.stringify(combined));
+    } catch (_) {}
+    return combined;
+  }
+
+  const defaultKnowledge: TamilAsanKnowledgeItem[] = [
+    {
+      id: "asan_general_profile",
+      title: "அகரம் தினேஷ் தமிழ் ஆசான் பொது வழிகாட்டல் & நிறுவன அறிமுகம்",
+      grade: "அனைத்து வகுப்புகள் (General)",
+      category: "பொதுவான தகவல்",
+      topics: ["அறிமுகம்", "பாடநெறி விபரம்", "ஆசிரியர் வழிகாட்டல்"],
+      expectedQuestions: [
+        "அகரம் தினேஸ் அகாடமி பற்றி கூறுக",
+        "தலைமை ஆசிரியர் யார்?",
+        "எந்தெந்த வகுப்புகளுக்கு தமிழ் கற்பிக்கப்படுகிறது?"
+      ],
+      content: "அகரம் தினேஸ் Online Academy என்பது இலங்கையின் தலைசிறந்த தமிழ் மொழி மற்றும் இலக்கிய கற்பித்தல் நிலையமாகும். தலைமை ஆசிரியர்: Mr. D. Dhineskumar (WhatsApp தொடர்பு: 0778054232 / +94778054232). தரம் 6 முதல் தரம் 13 வரை தமிழ் மொழி, இலக்கிய நயம், 30 நாள் பாடநெறி, வினாத்தாள் பயிற்சிகள் நவீன தொழில்நுட்பம் மற்றும் AI உதவியுடன் கற்பிக்கப்படுகின்றன.",
+      createdAt: Date.now()
+    }
+  ];
+
+  if (deletedIds.includes("asan_general_profile")) {
+    return [];
+  }
+  return defaultKnowledge;
+};
+
+export const saveTamilAsanKnowledge = async (items: TamilAsanKnowledgeItem[]) => {
+  const cleanList = Array.isArray(items) ? items : [];
+
+  // Remove saved item IDs from deleted tombstone list if they were re-saved
+  try {
+    const rawDeleted = localStorage.getItem('tamilAsanKnowledge_deleted');
+    if (rawDeleted) {
+      const deletedIds: string[] = JSON.parse(rawDeleted);
+      const savedIds = cleanList.map(s => String(s.id));
+      const cleanedDeleted = deletedIds.filter(d => !savedIds.includes(d));
+      localStorage.setItem('tamilAsanKnowledge_deleted', JSON.stringify(cleanedDeleted));
+    }
+
+    localStorage.setItem('tamilAsanKnowledge', JSON.stringify(cleanList));
+    localStorage.setItem('tamilAsanKnowledge_lastSavedAt', String(Date.now()));
+  } catch (e) {
+    console.warn("Error caching tamilAsanKnowledge locally:", e);
+  }
+
+  window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'tamilAsanKnowledge', data: cleanList } }));
+
+  if (isFirebaseConfigured) {
+    try {
+      const savePromises = cleanList.map(item => {
+        if (item && item.id) {
+          return setDoc(doc(db, 'tamilAsanKnowledge', String(item.id)), {
+            ...item,
+            updatedAt: item.updatedAt || Date.now()
+          }, { merge: true });
+        }
+        return Promise.resolve();
+      });
+
+      savePromises.push(
+        setDoc(doc(db, 'singletons', 'tamilAsanKnowledge'), {
+          data: cleanList,
+          updatedAt: Date.now()
+        }, { merge: false })
+      );
+
+      await Promise.race([Promise.all(savePromises), new Promise(res => setTimeout(res, 3500))]);
+    } catch (e) {
+      console.warn("Firebase saveTamilAsanKnowledge error:", e);
+    }
+  }
+
+  return cleanList;
+};
+
+// Strict Manual Admin Deletion - Never automatic, completely clears from both local cache and remote database
+export const deleteTamilAsanKnowledge = async (id: string) => {
+  const targetId = String(id);
+  // Mark in tombstone
+  try {
+    const rawDeleted = localStorage.getItem('tamilAsanKnowledge_deleted') || '[]';
+    const deletedIds: string[] = JSON.parse(rawDeleted);
+    if (!deletedIds.includes(targetId)) {
+      deletedIds.push(targetId);
+      localStorage.setItem('tamilAsanKnowledge_deleted', JSON.stringify(deletedIds.slice(-500)));
+    }
+  } catch (_) {}
+
+  const current = await getTamilAsanKnowledge();
+  const updated = current.filter(k => String(k.id) !== targetId);
+  await saveTamilAsanKnowledge(updated);
+
+  if (isFirebaseConfigured) {
+    try {
+      await deleteDoc(doc(db, 'tamilAsanKnowledge', targetId));
+    } catch (e) {
+      console.warn("Error deleting tamilAsanKnowledge document from Firebase:", e);
+    }
+  }
+  return updated;
+};
 
 export interface UnifiedLinkItem {
   id: string;
@@ -638,14 +788,100 @@ export interface UnifiedLinkItem {
   type: 'youtube' | 'drive' | 'web' | 'pdf' | 'other';
   grade: string;
   subject?: string;
+  category?: string;
   description?: string;
   createdAt: number;
 }
 
+export const getCustomKnowledgeCategories = async (): Promise<string[]> => {
+  return getData('customKnowledgeCategories', [
+    "இலக்கணம்",
+    "இலக்கிய நயம்",
+    "வினா விடை",
+    "பொதுவான தகவல்",
+    "மாதிரி வினாத்தாள்கள்",
+    "30 நாள் பாடநெறி",
+    "கட்டுரை & கடிதம்"
+  ]);
+};
+
+export const saveCustomKnowledgeCategories = async (categories: string[]): Promise<string[]> => {
+  const clean = Array.from(new Set((categories || []).map(c => String(c || '').trim()).filter(Boolean)));
+  await saveData('customKnowledgeCategories', clean);
+  return clean;
+};
+
+export const getCustomKnowledgeGrades = async (): Promise<string[]> => {
+  return getData('customKnowledgeGrades', [
+    "அனைத்து வகுப்புகள்",
+    "30 DAY'S TAMIL COURSE",
+    "தரம் 06",
+    "தரம் 07",
+    "தரம் 08",
+    "தரம் 09",
+    "தரம் 10",
+    "தரம் 11",
+    "தரம் 12",
+    "தரம் 13"
+  ]);
+};
+
+export const saveCustomKnowledgeGrades = async (grades: string[]): Promise<string[]> => {
+  const clean = Array.from(new Set((grades || []).map(g => String(g || '').trim()).filter(Boolean)));
+  await saveData('customKnowledgeGrades', clean);
+  return clean;
+};
+
 export const getAllUnifiedLinks = async (): Promise<UnifiedLinkItem[]> => {
+  setupRealtimeListener('allUnifiedLinks');
+
+  let deletedIds: string[] = [];
+  try {
+    const rawDeleted = localStorage.getItem('allUnifiedLinks_deleted');
+    if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
+  } catch (_) {}
+
+  let localLinks: UnifiedLinkItem[] = [];
+  try {
+    const rawLocal = localStorage.getItem('allUnifiedLinks');
+    if (rawLocal) localLinks = JSON.parse(rawLocal);
+  } catch (_) {}
+
+  let remoteLinks: UnifiedLinkItem[] = [];
+  if (isFirebaseConfigured) {
+    try {
+      const snap = await getDocs(collection(db, 'allUnifiedLinks'));
+      if (!snap.empty) {
+        remoteLinks = snap.docs.map(d => ({ ...d.data(), id: d.id } as UnifiedLinkItem));
+      }
+    } catch (_) {}
+
+    try {
+      const singletonSnap = await getDoc(doc(db, 'singletons', 'allUnifiedLinks'));
+      if (singletonSnap.exists() && Array.isArray(singletonSnap.data()?.data)) {
+        remoteLinks = mergeArraysById(remoteLinks, singletonSnap.data().data);
+      }
+    } catch (_) {}
+  }
+
+  let combined = mergeArraysById(remoteLinks, localLinks);
+  if (deletedIds.length > 0) {
+    combined = combined.filter(l => !deletedIds.includes(String(l.id)));
+  }
+
+  if (combined.length > 0) {
+    const sorted = [...combined].sort((a, b) => (Number(a.order) || 9999) - (Number(b.order) || 9999));
+    try {
+      localStorage.setItem('allUnifiedLinks', JSON.stringify(sorted));
+    } catch (_) {}
+    return sorted;
+  }
+
   const existing = await getData('allUnifiedLinks', []);
   if (Array.isArray(existing) && existing.length > 0) {
-    return [...existing].sort((a, b) => (Number(a.order) || 9999) - (Number(b.order) || 9999));
+    return [...existing]
+      .filter(l => !deletedIds.includes(String(l.id)))
+      .sort((a, b) => (Number(a.order) || 9999) - (Number(b.order) || 9999));
   }
   return [];
 };
@@ -657,8 +893,77 @@ export const saveAllUnifiedLinks = async (links: UnifiedLinkItem[]) => {
     order: typeof item.order === 'number' ? item.order : (idx + 1)
   })).sort((a, b) => a.order - b.order);
 
-  await saveData('allUnifiedLinks', ordered);
+  try {
+    const rawDeleted = localStorage.getItem('allUnifiedLinks_deleted');
+    if (rawDeleted) {
+      const deletedIds: string[] = JSON.parse(rawDeleted);
+      const savedIds = ordered.map(s => String(s.id));
+      const cleanedDeleted = deletedIds.filter(d => !savedIds.includes(d));
+      localStorage.setItem('allUnifiedLinks_deleted', JSON.stringify(cleanedDeleted));
+    }
+    localStorage.setItem('allUnifiedLinks', JSON.stringify(ordered));
+    localStorage.setItem('allUnifiedLinks_lastSavedAt', String(Date.now()));
+  } catch (_) {}
+
+  window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'allUnifiedLinks', data: ordered } }));
+
+  if (isFirebaseConfigured) {
+    try {
+      const savePromises = ordered.map(item => {
+        if (item && item.id) {
+          return setDoc(doc(db, 'allUnifiedLinks', String(item.id)), {
+            ...item,
+            updatedAt: Date.now()
+          }, { merge: true });
+        }
+        return Promise.resolve();
+      });
+
+      savePromises.push(
+        setDoc(doc(db, 'singletons', 'allUnifiedLinks'), {
+          data: ordered,
+          updatedAt: Date.now()
+        }, { merge: false })
+      );
+
+      await Promise.race([Promise.all(savePromises), new Promise(res => setTimeout(res, 3500))]);
+    } catch (e) {
+      console.warn("Firebase saveAllUnifiedLinks error:", e);
+    }
+  }
+
   return ordered;
+};
+
+// Strict Manual Admin Deletion for Unified Links - deletes from both local state and Firestore
+export const deleteUnifiedLink = async (id: string) => {
+  const targetId = String(id);
+  try {
+    const rawDeleted = localStorage.getItem('allUnifiedLinks_deleted') || '[]';
+    const deletedIds: string[] = JSON.parse(rawDeleted);
+    if (!deletedIds.includes(targetId)) {
+      deletedIds.push(targetId);
+      localStorage.setItem('allUnifiedLinks_deleted', JSON.stringify(deletedIds.slice(-500)));
+    }
+  } catch (_) {}
+
+  const current = await getAllUnifiedLinks();
+  const filtered = current.filter(item => String(item.id) !== targetId);
+  const reindexed = filtered.map((item, idx) => ({
+    ...item,
+    order: idx + 1
+  }));
+
+  await saveAllUnifiedLinks(reindexed);
+
+  if (isFirebaseConfigured) {
+    try {
+      await deleteDoc(doc(db, 'allUnifiedLinks', targetId));
+    } catch (e) {
+      console.warn("Error deleting allUnifiedLinks doc from Firebase:", e);
+    }
+  }
+  return reindexed;
 };
 
 export const getPasswordRequests = () => getData('passwordRequests', []);
@@ -1127,26 +1432,22 @@ export const isZoomLinkExpired = (link: any, bufferHours = 8): boolean => {
 export const getZoomLinks = async () => {
   const rawLinks = await getData('zoomLinks', []);
   const links = Array.isArray(rawLinks) ? rawLinks : [];
-
-  // Filter out any links older than 8 hours
-  const activeLinks = links.filter(l => !isZoomLinkExpired(l, 8));
-  const expiredLinks = links.filter(l => isZoomLinkExpired(l, 8));
-
-  // Auto-delete expired Zoom links from database after 8 hours so they don't linger
-  if (expiredLinks.length > 0) {
-    if (isFirebaseConfigured) {
-      expiredLinks.forEach(exp => {
-        if (exp?.id) {
-          deleteDoc(doc(db, 'zoomLinks', String(exp.id))).catch(() => {});
-        }
-      });
-    }
-    saveData('zoomLinks', activeLinks).catch(() => {});
-  }
-
-  return activeLinks;
+  return links;
 };
 export const saveZoomLinks = (links: any) => saveData('zoomLinks', Array.isArray(links) ? links : []);
+
+export const deleteZoomLink = async (id: string | number) => {
+  const targetId = String(id);
+  const current = await getZoomLinks();
+  const updated = current.filter(l => String(l.id) !== targetId);
+  await saveZoomLinks(updated);
+  if (isFirebaseConfigured) {
+    try {
+      await deleteDoc(doc(db, 'zoomLinks', targetId));
+    } catch (_) {}
+  }
+  return updated;
+};
 
 export const getCourses = async (): Promise<any[]> => {
   setupRealtimeListener('courses');

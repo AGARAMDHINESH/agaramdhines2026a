@@ -1,5 +1,4 @@
 import React, { useState, useRef } from "react";
-import { getGeminiAI } from "../../lib/gemini";
 
 export default function ImageEditor() {
   const [image, setImage] = useState<string | null>(null);
@@ -20,39 +19,27 @@ export default function ImageEditor() {
   };
 
   const handleEdit = async () => {
-    if (!image || !prompt) return;
+    if (!prompt.trim()) return;
     setLoading(true);
     try {
-      const ai = getGeminiAI();
-      const base64Data = image.split(",")[1];
-      const mimeType = image.split(";")[0].split(":")[1];
-
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-image",
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                data: base64Data,
-                mimeType: mimeType,
-              },
-            },
-            {
-              text: prompt,
-            },
-          ],
-        },
+      const res = await fetch("/api/tamil-asan/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          lessonContext: "Image Editor",
+          aspectRatio: "1:1"
+        })
       });
 
-      for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-          const base64EncodeString = part.inlineData.data;
-          setResultImage(`data:image/png;base64,${base64EncodeString}`);
-        }
+      const data = await res.json();
+      if (!res.ok || !data.imageBase64) {
+        throw new Error(data.error || "Failed to generate image");
       }
-    } catch (error) {
-      console.error(error);
-      alert("Error editing image. Check console for details.");
+
+      setResultImage(`data:${data.mimeType || 'image/png'};base64,${data.imageBase64}`);
+    } catch (error: any) {
+      alert("Error generating image: " + (error?.message || "Please try again."));
     } finally {
       setLoading(false);
     }

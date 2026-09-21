@@ -404,11 +404,14 @@ export default function ChatbotSettings() {
                         <label className="block text-sm font-medium text-gray-700 mb-1">ElevenLabs API Key</label>
                         <input
                           type="password"
-                          placeholder="xi-..."
+                          placeholder="sk_..."
                           value={asanSettings.elevenLabsApiKey || ''}
                           onChange={(e) => setAsanSettings({ ...asanSettings, elevenLabsApiKey: e.target.value })}
-                          className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 text-sm"
+                          className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 text-sm font-mono"
                         />
+                        <p className="text-xs text-gray-500 mt-1">
+                          முக்கியம்: API Key கட்டாயம் <strong>sk_</strong> எனத் தொடங்க வேண்டும் (Key ID அல்ல). ElevenLabs Dashboard → API Keys-ல் புதிய Secret Key உருவாக்கி நகலெடுக்கவும்.
+                        </p>
                       </div>
                     </>
                   )}

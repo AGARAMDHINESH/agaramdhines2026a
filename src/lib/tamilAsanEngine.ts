@@ -20,10 +20,13 @@ import {
   getWebPosts, 
   getChatbotSettings, 
   getTamilAsanKnowledge, 
+  TamilAsanKnowledgeItem,
   getAllUnifiedLinks,
   getData,
   saveData
 } from "./db";
+
+export type { TamilAsanKnowledgeItem };
 
 export interface GuruSourceReference {
   title: string;
@@ -56,9 +59,9 @@ export const DEFAULT_TAMIL_ASAN_SETTINGS: TamilAsanSettings = {
   teacherName: "Mr. D. Dhineskumar",
   systemPromptAddon: "நீங்கள் அகரம் தினேஷ் ஆன்லைன் அகாடமியின் தலைமைத் தமிழ் ஆசான் திரு. தினேஷ்குமார் அவர்களின் டிஜிட்டல் பிரதிநிதி. மாணவர்களின் சந்தேகங்களை அன்பாகவும், இலக்கண/இலக்கிய துல்லியத்துடனும், எளிய தமிழ் நடையிலும் விளக்குங்கள்.",
   voiceCloningEnabled: true,
-  voiceProvider: 'browser_native',
-  elevenLabsApiKey: "",
-  elevenLabsVoiceId: "",
+  voiceProvider: 'elevenlabs',
+  elevenLabsApiKey: "sk_bd3550c82531e68e929818dd5c639a5aa4b7d43bdce4d778",
+  elevenLabsVoiceId: "OUBMjq0LvBjb07bhwD3H",
   voiceSampleUrl: "",
   welcomeAudioUrl: "",
   welcomeVoiceText: "வணக்கம் அன்பு மாணவச் செல்வங்களே! உங்களை அன்புடன் நமது அகரம் தினேஸ் அறிவுத்தளத்திற்கு அழைக்கிறோம். உங்கள் தமிழ் சந்தேகங்களை என்னிடம் கேளுங்கள், மகிழ்ச்சியுடன் விளக்குகிறேன்.",
@@ -66,11 +69,18 @@ export const DEFAULT_TAMIL_ASAN_SETTINGS: TamilAsanSettings = {
   speechPitch: 1.0,
   speechRate: 0.95,
   allowedGrades: ["Grade 06", "Grade 07", "Grade 08", "Grade 09", "Grade 10", "Grade 11", "Grade 12", "Grade 13"],
-  strictMode: true
+  strictMode: false
 };
 
 export const getTamilAsanSettings = async (): Promise<TamilAsanSettings> => {
-  return getData('tamilAsanSettings', DEFAULT_TAMIL_ASAN_SETTINGS);
+  const loaded = await getData('tamilAsanSettings', DEFAULT_TAMIL_ASAN_SETTINGS);
+  return {
+    ...DEFAULT_TAMIL_ASAN_SETTINGS,
+    ...loaded,
+    elevenLabsApiKey: (loaded?.elevenLabsApiKey && loaded.elevenLabsApiKey.startsWith("sk_")) ? loaded.elevenLabsApiKey : DEFAULT_TAMIL_ASAN_SETTINGS.elevenLabsApiKey,
+    elevenLabsVoiceId: (loaded?.elevenLabsVoiceId && loaded.elevenLabsVoiceId.trim()) ? loaded.elevenLabsVoiceId : DEFAULT_TAMIL_ASAN_SETTINGS.elevenLabsVoiceId,
+    voiceProvider: 'elevenlabs'
+  };
 };
 
 export const saveTamilAsanSettings = async (settings: TamilAsanSettings): Promise<void> => {
@@ -138,7 +148,12 @@ export const buildAcademyKnowledgeContext = async (targetGrade?: string, topic?:
     asanKnowledge.forEach((item: any) => {
       const g = item.grade || "பொதுவானது";
       const cat = item.category || "பொது";
-      contextLines.push(`- [${g}] [${cat}] ${item.title}: ${item.content}`);
+      const topicsStr = Array.isArray(item.topics) && item.topics.length > 0 ? ` [உபதலைப்புகள்: ${item.topics.join(', ')}]` : '';
+      const questionsStr = Array.isArray(item.expectedQuestions) && item.expectedQuestions.length > 0 ? ` [மாதிரி வினாக்கள்: ${item.expectedQuestions.join(' | ')}]` : '';
+      const qaStr = Array.isArray(item.qaPairs) && item.qaPairs.length > 0
+        ? `\n  [வினா-விடை ஜோடிகள்:\n` + item.qaPairs.map((qa: any) => `   - வினா: ${qa.question}\n     விடை: ${qa.answer}`).join('\n') + `\n  ]`
+        : '';
+      contextLines.push(`- [${g}] [${cat}] ${item.title}${topicsStr}${questionsStr}:\n${item.content}${qaStr}`);
       sources.push({
         title: item.title,
         type: 'notes',
@@ -185,7 +200,8 @@ export const askTamilAsan = async ({
   category = "பொதுவான தமிழ்",
   imageBase64,
   imageMimeType,
-  answerLength
+  answerLength,
+  chatHistory = []
 }: {
   question: string;
   grade?: string;
@@ -193,6 +209,7 @@ export const askTamilAsan = async ({
   imageBase64?: string;
   imageMimeType?: string;
   answerLength?: 'concise' | 'detailed';
+  chatHistory?: Array<{ role: 'user' | 'asan'; text: string }>;
 }): Promise<{
   answer: string;
   usedSources: GuruSourceReference[];
@@ -208,14 +225,16 @@ export const askTamilAsan = async ({
     unifiedLinks,
     youtube,
     courses,
-    botSettings
+    botSettings,
+    asanSettings
   ] = await Promise.all([
     getCourseMaterials().catch(() => []),
     getTamilAsanKnowledge().catch(() => []),
     getAllUnifiedLinks().catch(() => []),
     getYoutubeLinks().catch(() => []),
     getCourses().catch(() => []),
-    getChatbotSettings().catch(() => null)
+    getChatbotSettings().catch(() => null),
+    getTamilAsanSettings().catch(() => DEFAULT_TAMIL_ASAN_SETTINGS)
   ]);
 
   // 1. GREETING INTENT
@@ -313,12 +332,46 @@ ${feeLines.join("\n")}
     };
   }
 
-  // 4. INTELLIGENT FIREBASE KNOWLEDGE RETRIEVAL
-  // Extract search tokens
-  const cleanTokens = lowerQ
+  // 4. INTELLIGENT FIREBASE KNOWLEDGE RETRIEVAL & STEMMING
+  // Common Tamil and English question filler words / suffixes to strip for core keyword isolation
+  // (Intent Understanding: Handles literary, direct, or colloquial/spoken Tamil)
+  const questionStopwords = new Set([
+    'என்றால்', 'என்ன', 'எவை', 'யாவை', 'எப்படி', 'ஏன்', 'எங்கு', 'எப்போது', 'எதனை',
+    'விளக்குக', 'விளக்கு', 'கூறுக', 'கூறு', 'பற்றி', 'பற்றிய', 'பற்றிச்', 'சொல்லுங்கள்',
+    'சொல்', 'தருக', 'தாருங்கள்', 'விபரம்', 'விவரம்', 'என்பது', 'என்பதை', 'குறிப்பு',
+    'வரைக', 'எழுதுக', 'எழுது', 'தெரியுமா', 'சொல்லுங்க', 'சொல்லு', 'சார்', 'ஆசான்',
+    'என்னா', 'எப்பிடி', 'பத்தி', 'தெரியனும்', 'சொல்லிக்குடுங்க', 'சொல்லித்தாங்க',
+    'what', 'is', 'the', 'definition', 'of', 'explain', 'meaning'
+  ]);
+
+  // Strip punctuation & extra spaces
+  const rawCleanTokens = lowerQ
     .replace(/[?,.!:;()\[\]"'\/\\-]/g, ' ')
     .split(/\s+/)
     .filter(w => w.length >= 2);
+
+  // Core content tokens (e.g., ["பெயர்ச்சொல்", "பெயர்"] from "பெயர்ச்சொல் என்றால் என்ன?")
+  const contentTokens = rawCleanTokens.filter(tok => !questionStopwords.has(tok));
+  const activeTokens = contentTokens.length > 0 ? contentTokens : rawCleanTokens;
+
+  // Extract Tamil root stems (e.g., 'பெயர்ச்சொல்' -> 'பெயர்', 'சொல்'; 'புணர்ச்சி' -> 'புணர்')
+  const rootStems: string[] = [];
+  activeTokens.forEach(token => {
+    if (token.length >= 4) {
+      // Common compound splits
+      if (token.includes('ச்சொல்') || token.includes('சொல்')) {
+        const root = token.replace(/(ச்சொல்|சொல்|க்கள்|கள்|களில்|களுக்கு|க்கு|ற்கு|ன்|ல்|ம்)$/g, '');
+        if (root.length >= 2) rootStems.push(root);
+      }
+      // Trim common Tamil case suffixes (-கள், -க்கு, -இல், -உடைய, -ஐ, -ஓடு)
+      const trimmedSuffix = token.replace(/(த்திற்கு|ங்களுக்கு|னுடைய|ஆவது|உடைய|களின்|களில்|களை|கள்|க்கு|ற்கு|இல்|இன்|ஐ|யை|வை|ஆல்|ஓடு|டன்)$/g, '');
+      if (trimmedSuffix.length >= 2 && trimmedSuffix !== token) {
+        rootStems.push(trimmedSuffix);
+      }
+    }
+  });
+
+  const allSearchTokens = Array.from(new Set([...activeTokens, ...rootStems])).filter(t => t.length >= 2);
 
   // Extract grade numbers if mentioned in query or passed as prop
   const queryGradeMatch = lowerQ.match(/தரம்\s*(\d+)|grade\s*(\d+)/i);
@@ -332,6 +385,14 @@ ${feeLines.join("\n")}
 
   const scoredResults: ScoredItem[] = [];
 
+  // Helper matcher: Substring or reverse-substring token match
+  const matchTokenAgainstText = (token: string, target: string): number => {
+    if (!token || !target) return 0;
+    if (target.includes(token)) return token.length >= 4 ? 30 : 15;
+    if (token.length >= 4 && token.includes(target) && target.length >= 3) return 20;
+    return 0;
+  };
+
   // 4.1 Search in Teacher's Knowledge Base (asanKnowledge)
   (asanKnowledge || []).forEach((k: any) => {
     let score = 0;
@@ -340,19 +401,87 @@ ${feeLines.join("\n")}
     const cat = String(k.category || '').toLowerCase();
     const g = String(k.grade || '').toLowerCase();
 
-    // Exact query matches
-    if (title.includes(lowerQ)) score += 80;
-    if (content.includes(lowerQ)) score += 50;
+    // Exact or phrase match
+    if (title.includes(lowerQ)) score += 100;
+    if (content.includes(lowerQ)) score += 60;
 
-    // Token matches
-    cleanTokens.forEach(token => {
-      if (title.includes(token)) score += 25;
-      if (content.includes(token)) score += 12;
-      if (cat.includes(token)) score += 15;
+    // Direct contentTokens match against title/content
+    activeTokens.forEach(tok => {
+      if (title.includes(tok)) score += 40;
+      if (content.includes(tok)) score += 25;
+      if (cat.includes(tok)) score += 20;
     });
 
+    // Root stems & fuzzy matching
+    allSearchTokens.forEach(token => {
+      score += matchTokenAgainstText(token, title);
+      score += matchTokenAgainstText(token, content) * 0.7;
+      score += matchTokenAgainstText(token, cat) * 0.8;
+    });
+
+    // Match against Teacher's Expected Student Questions (Highest semantic confidence boost!)
+    if (Array.isArray(k.expectedQuestions) && k.expectedQuestions.length > 0) {
+      k.expectedQuestions.forEach((eq: any) => {
+        const qStr = String(eq || '').trim().toLowerCase();
+        if (!qStr) return;
+        if (qStr === lowerQ || lowerQ.includes(qStr) || qStr.includes(lowerQ)) {
+          score += 150; // Pinpoint teacher-anticipated question match!
+        }
+        activeTokens.forEach(tok => {
+          if (qStr.includes(tok)) score += 45;
+        });
+        allSearchTokens.forEach(token => {
+          score += matchTokenAgainstText(token, qStr) * 1.5;
+        });
+      });
+    }
+
+    // Match against Structured Q&A Pairs (Pinpoint Q&A match!)
+    if (Array.isArray(k.qaPairs) && k.qaPairs.length > 0) {
+      k.qaPairs.forEach((qa: any) => {
+        const qStr = String(qa.question || '').trim().toLowerCase();
+        const aStr = String(qa.answer || '').trim().toLowerCase();
+        if (qStr) {
+          if (qStr === lowerQ || lowerQ.includes(qStr) || qStr.includes(lowerQ)) {
+            score += 180; // Absolute direct teacher Q&A match
+          }
+          activeTokens.forEach(tok => {
+            if (qStr.includes(tok)) score += 50;
+          });
+          allSearchTokens.forEach(token => {
+            score += matchTokenAgainstText(token, qStr) * 1.8;
+          });
+        }
+        if (aStr) {
+          activeTokens.forEach(tok => {
+            if (aStr.includes(tok)) score += 25;
+          });
+          allSearchTokens.forEach(token => {
+            score += matchTokenAgainstText(token, aStr) * 0.9;
+          });
+        }
+      });
+    }
+
+    // Match against Topics / Keywords
+    if (Array.isArray(k.topics) && k.topics.length > 0) {
+      k.topics.forEach((t: any) => {
+        const topStr = String(t || '').trim().toLowerCase();
+        if (!topStr) return;
+        if (lowerQ.includes(topStr) || topStr.includes(lowerQ)) {
+          score += 90;
+        }
+        activeTokens.forEach(tok => {
+          if (topStr.includes(tok)) score += 35;
+        });
+        allSearchTokens.forEach(token => {
+          score += matchTokenAgainstText(token, topStr) * 1.2;
+        });
+      });
+    }
+
     // Grade match
-    if (detectedGradeNum && g.includes(detectedGradeNum)) score += 20;
+    if (detectedGradeNum && g.includes(detectedGradeNum)) score += 25;
 
     if (score > 0) {
       scoredResults.push({ score, type: 'knowledge', item: k });
@@ -367,11 +496,16 @@ ${feeLines.join("\n")}
     const g = String(m.grade || '').toLowerCase();
     const link = m.fileUrl || m.link || m.driveLink || '';
 
-    if (title.includes(lowerQ)) score += 70;
+    if (title.includes(lowerQ)) score += 80;
 
-    cleanTokens.forEach(token => {
-      if (title.includes(token)) score += 20;
-      if (subject.includes(token)) score += 15;
+    activeTokens.forEach(tok => {
+      if (title.includes(tok)) score += 35;
+      if (subject.includes(tok)) score += 20;
+    });
+
+    allSearchTokens.forEach(token => {
+      score += matchTokenAgainstText(token, title);
+      score += matchTokenAgainstText(token, subject) * 0.8;
     });
 
     if (detectedGradeNum && g.includes(detectedGradeNum)) score += 25;
@@ -394,13 +528,22 @@ ${feeLines.join("\n")}
     const desc = String(u.description || '').toLowerCase();
     const g = String(u.grade || '').toLowerCase();
     const s = String(u.subject || '').toLowerCase();
+    const cat = String(u.category || '').toLowerCase();
 
-    if (title.includes(lowerQ)) score += 60;
+    if (title.includes(lowerQ)) score += 70;
 
-    cleanTokens.forEach(token => {
-      if (title.includes(token)) score += 18;
-      if (desc.includes(token)) score += 10;
-      if (s.includes(token)) score += 12;
+    activeTokens.forEach(tok => {
+      if (title.includes(tok)) score += 30;
+      if (desc.includes(tok)) score += 15;
+      if (s.includes(tok)) score += 18;
+      if (cat.includes(tok)) score += 18;
+    });
+
+    allSearchTokens.forEach(token => {
+      score += matchTokenAgainstText(token, title);
+      score += matchTokenAgainstText(token, desc) * 0.5;
+      score += matchTokenAgainstText(token, s) * 0.8;
+      score += matchTokenAgainstText(token, cat) * 0.8;
     });
 
     if (detectedGradeNum && g.includes(detectedGradeNum)) score += 20;
@@ -416,10 +559,14 @@ ${feeLines.join("\n")}
     const title = String(y.title || '').toLowerCase();
     const g = String(y.grade || '').toLowerCase();
 
-    if (title.includes(lowerQ)) score += 50;
+    if (title.includes(lowerQ)) score += 60;
 
-    cleanTokens.forEach(token => {
-      if (title.includes(token)) score += 15;
+    activeTokens.forEach(tok => {
+      if (title.includes(tok)) score += 25;
+    });
+
+    allSearchTokens.forEach(token => {
+      score += matchTokenAgainstText(token, title);
     });
 
     if (detectedGradeNum && g.includes(detectedGradeNum)) score += 15;
@@ -437,11 +584,16 @@ ${feeLines.join("\n")}
     const desc = String(c.description || '').toLowerCase();
     const g = String(c.grade || '').toLowerCase();
 
-    if (title.includes(lowerQ)) score += 40;
+    if (title.includes(lowerQ)) score += 50;
 
-    cleanTokens.forEach(token => {
-      if (title.includes(token)) score += 12;
-      if (desc.includes(token)) score += 8;
+    activeTokens.forEach(tok => {
+      if (title.includes(tok)) score += 20;
+      if (desc.includes(tok)) score += 10;
+    });
+
+    allSearchTokens.forEach(token => {
+      score += matchTokenAgainstText(token, title);
+      score += matchTokenAgainstText(token, desc) * 0.5;
     });
 
     if (detectedGradeNum && g.includes(detectedGradeNum)) score += 15;
@@ -454,109 +606,193 @@ ${feeLines.join("\n")}
   // Sort results by score descending
   scoredResults.sort((a, b) => b.score - a.score);
 
-  // 5. IF MATCHING ITEMS FOUND IN FIREBASE
-  if (scoredResults.length > 0) {
-    const topMatches = scoredResults.slice(0, 8);
-    const knowledgeMatches = topMatches.filter(r => r.type === 'knowledge');
-    const materialMatches = topMatches.filter(r => r.type === 'material' || (r.type === 'unified' && r.item.type !== 'youtube'));
-    const videoMatches = topMatches.filter(r => r.type === 'youtube' || (r.type === 'unified' && r.item.type === 'youtube'));
-    const courseMatches = topMatches.filter(r => r.type === 'course');
+  // 5. IF MATCHING ITEMS FOUND IN FIREBASE (Filter strictly by relevance threshold to avoid unrelated dumps)
+  // Only consider items with significant relevance score (score >= 35)
+  const strictlyRelevantMatches = scoredResults.filter(r => r.score >= 35);
 
-    let answerParts: string[] = [];
-    answerParts.push(`வணக்கம் அன்புச் செல்வமே! நமது அகரம் தினேஸ் அகாடமியின் Firebase அறிவுத்தளத்தில் நீங்கள் கேட்ட "${trimmedQ}" தொடர்பான தகவல்கள் கீழே தொகுக்கப்பட்டுள்ளன:\n`);
+  if (strictlyRelevantMatches.length > 0) {
+    // Only pick the top 1 or 2 most directly relevant notes to prevent context bloating
+    const knowledgeMatches = strictlyRelevantMatches.filter(r => r.type === 'knowledge').slice(0, 2);
+    const materialMatches = strictlyRelevantMatches.filter(r => r.type === 'material' || (r.type === 'unified' && r.item.type !== 'youtube')).slice(0, 1);
+    // Videos only if high relevance (score >= 50, meaning title explicitly matched)
+    const videoMatches = strictlyRelevantMatches.filter(r => (r.type === 'youtube' || (r.type === 'unified' && r.item.type === 'youtube')) && r.score >= 50).slice(0, 1);
 
-    // 5.1 Teacher's Detailed Knowledge / Notes
+    // Build concise, focused grounding context strictly for the queried topic
+    const groundingContextLines: string[] = [];
+
     if (knowledgeMatches.length > 0) {
-      knowledgeMatches.slice(0, 2).forEach(({ item }) => {
-        answerParts.push(`📖 **ஆசானின் பாடக் குறிப்பு & விளக்கம்:**\n**${item.title}** (${item.grade || 'பொது'})\n${item.content}\n`);
-      });
-    }
-
-    // 5.2 Teacher's Official Notes & Curriculum References (NO PDF Download Links)
-    if (materialMatches.length > 0) {
-      answerParts.push(`📚 **பாடக் குறிப்பு ஆதாரம் (Course Reference):**`);
-      materialMatches.slice(0, 5).forEach(({ item }) => {
-        const title = item.title || 'பாடக்குறிப்பு';
-        const gradeText = item.grade ? `[${item.grade}]` : '';
-        const subjectText = item.subject ? `[${item.subject}]` : '';
-        answerParts.push(`• **${title}** ${gradeText} ${subjectText} *(தலைமை ஆசிரியரின் அதிகாரப்பூர்வப் பதிவிலிருந்து)*`);
-      });
-      answerParts.push(``);
-    }
-
-    // 5.3 YouTube Video Classes (Permitted as requested)
-    if (videoMatches.length > 0) {
-      answerParts.push(`🎬 **தொடர்புடைய வீடியோ வகுப்புகள்:**`);
-      videoMatches.slice(0, 3).forEach(({ item }) => {
-        const title = item.title || 'வீடியோ வகுப்பு';
-        const url = item.url || item.youtubeUrl || item.link || '';
-        if (url) {
-          answerParts.push(`• **${title}**: [வீடியோவைக் காண ➔](${url})`);
+      groundingContextLines.push(`--- ஆசிரியரின் நேரடிப் பாடக் குறிப்பு (Teacher's Specific Note for this Topic) ---`);
+      knowledgeMatches.forEach(({ item }) => {
+        groundingContextLines.push(`தலைப்பு: ${item.title || ''}`);
+        if (item.grade) groundingContextLines.push(`தரம்: ${item.grade}`);
+        if (item.category) groundingContextLines.push(`பிரிவு: ${item.category}`);
+        if (Array.isArray(item.topics) && item.topics.length > 0) {
+          groundingContextLines.push(`உபதலைப்புகள் / Topics: ${item.topics.join(', ')}`);
         }
+        if (Array.isArray(item.expectedQuestions) && item.expectedQuestions.length > 0) {
+          groundingContextLines.push(`எதிர்பார்க்கப்படும் மாணவர் வினாக்கள்:\n${item.expectedQuestions.map((q: string) => `• ${q}`).join('\n')}`);
+        }
+        if (Array.isArray(item.qaPairs) && item.qaPairs.length > 0) {
+          groundingContextLines.push(`மாதிரி வினாக்களும் ஆசிரியரின் அதிகாரப்பூர்வ விடைகளும்:`);
+          item.qaPairs.forEach((qa: any, idx: number) => {
+            groundingContextLines.push(`[வினா ${idx + 1}]: ${qa.question}\n[விடை]: ${qa.answer}`);
+          });
+        }
+        groundingContextLines.push(`குறிப்பு விளக்கம்:\n${item.content || ''}\n`);
       });
-      answerParts.push(``);
     }
 
-    // 5.4 Courses
-    if (courseMatches.length > 0) {
-      answerParts.push(`🎓 **பாடநெறிகள்:**`);
-      courseMatches.slice(0, 2).forEach(({ item }) => {
-        answerParts.push(`• **${item.title}**: ${item.description || ''}`);
+    if (materialMatches.length > 0) {
+      materialMatches.forEach(({ item }) => {
+        groundingContextLines.push(`பாடக்குறிப்பு ஆவணம்: ${item.title || ''} [${item.grade || 'பொது'}]`);
+        if (item.description) groundingContextLines.push(`விபரம்: ${item.description}`);
       });
-      answerParts.push(``);
     }
 
-    // Friendly Closing
-    answerParts.push(`இக்குறிப்புகளைப் படித்து தேர்வில் சிறந்த பெறுபேறுகளைப் பெற வாழ்த்துகள்! கூடுதல் விளக்கம் அல்லது பாடச் சந்தேகங்கள் தேவைப்படின், தலைமை ஆசான் திரு. D. தினேஷ்குமார் அவர்களை நேரடியாக WhatsApp (+94778054232) மூலம் தொடர்பு கொள்ளலாம்.`);
+    const fullKnowledgeContext = groundingContextLines.join('\n');
 
-    // Suggestions based on matches (Strictly NO PDF download buttons)
-    const followUps: string[] = [];
+    // Sources tracking
+    const sources: GuruSourceReference[] = [];
+    knowledgeMatches.forEach(({ item }) => {
+      sources.push({
+        title: item.title,
+        type: 'notes',
+        grade: item.grade || 'பொது',
+        subject: item.category || 'இலக்கணம்'
+      });
+    });
     if (videoMatches.length > 0) {
-      followUps.push("வீடியோ வகுப்புகள் பார்க்க");
+      const v = videoMatches[0].item;
+      sources.push({
+        title: v.title || 'வீடியோ வகுப்பு',
+        type: 'youtube',
+        url: v.url || v.youtubeUrl || v.link || '',
+        grade: v.grade || 'பொது',
+        subject: 'தமிழ்'
+      });
     }
-    followUps.push("இலக்கண விளக்கம் தருக");
-    followUps.push("30 நாள் பாடநெறி விபரம்");
-    followUps.push("WhatsApp-ல் ஆசானைத் தொடர்பு கொள்");
-    if (followUps.length < 3) {
-      followUps.push("மாதிரி வினாத்தாள்கள் பார்க்க");
-      followUps.push("30 நாள் பாடநெறி விபரம்");
+
+    // Attempt Gemini Grounded Direct Explanation via /api/tamil-asan/ask
+    try {
+      const askRes = await fetch("/api/tamil-asan/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: trimmedQ,
+          knowledgeContext: fullKnowledgeContext,
+          chatHistory: chatHistory.slice(-4),
+          imageBase64,
+          imageMimeType,
+          model: "gemini-flash-lite-latest",
+          answerLength: answerLength || "detailed"
+        })
+      });
+
+      if (askRes.ok) {
+        const data = await askRes.json();
+        if (data.text && typeof data.text === "string" && data.text.trim()) {
+          let finalAnswer = data.text.trim();
+
+          // Append single official video class link only if directly relevant and not already linked
+          if (videoMatches.length > 0 && !finalAnswer.includes("வீடியோவைக் காண")) {
+            const v = videoMatches[0].item;
+            const vTitle = v.title || 'பாட விளக்கம்';
+            const vUrl = v.url || v.youtubeUrl || v.link || '';
+            if (vUrl) {
+              finalAnswer += `\n\n🎬 **தொடர்புடைய ஆசான் வீடியோ வகுப்பு:**\n• [${vTitle} - காணொளியைக் காண்க ➔](${vUrl})`;
+            }
+          }
+
+          const followUps: string[] = [
+            "மேலதிக உதாரணங்கள் தருக",
+            "இலக்கணப் பயிற்சி வினாக்கள்",
+            "30 நாள் பாடநெறி விபரம்"
+          ];
+
+          return {
+            answer: finalAnswer,
+            usedSources: sources,
+            suggestedFollowUps: followUps
+          };
+        }
+      }
+    } catch (e) {
+      console.warn("Server-side grounded ask failed, using structured template fallback:", e);
+    }
+
+    // Direct Structured Fallback if server call is unreachable - Never dump raw notes!
+    // Format only the most relevant item into a clean pedagogical explanation
+    const primaryNote = knowledgeMatches[0]?.item;
+    let fallbackAnswer = "";
+    if (primaryNote) {
+      fallbackAnswer = `### ${primaryNote.title} (${primaryNote.grade || 'இலக்கணம்'})\n\n${primaryNote.content}\n`;
+    } else {
+      fallbackAnswer = `இக்கேள்விக்கான துல்லியமான இலக்கண விளக்கம் தயார் செய்யப்படுகிறது. தயவுசெய்து சிறிது நேரம் கழித்து மீண்டும் முயற்சிக்கவும்.`;
+    }
+
+    if (videoMatches.length > 0) {
+      const v = videoMatches[0].item;
+      const vUrl = v.url || v.youtubeUrl || v.link || '';
+      if (vUrl) {
+        fallbackAnswer += `\n\n🎬 **தொடர்புடைய வீடியோ வகுப்பு:** [${v.title || 'காணொளி'}](${vUrl})`;
+      }
     }
 
     return {
-      answer: answerParts.join("\n"),
-      usedSources: [],
-      suggestedFollowUps: followUps.slice(0, 4)
+      answer: fallbackAnswer,
+      usedSources: sources,
+      suggestedFollowUps: ["மேலதிக உதாரணங்கள் தருக", "பயிற்சி வினாக்கள்"]
     };
   }
 
-  // 6. IF NO MATCHING ITEM FOUND IN FIREBASE
-  // Grounded Truth Rule: NEVER call external Google Gemini or ChatGPT.
-  // Honestly inform the student and show existing available topics in Firebase!
-  const recentMaterials = (materials || []).slice(0, 4);
+  // 6. IF NO DIRECT FIREBASE ITEM FOUND
+  // Check if strictMode is false or unset (default), allow the teacher persona to explain standard Tamil grammar/literature curriculum
+  if (!asanSettings.strictMode) {
+    try {
+      const askRes = await fetch("/api/tamil-asan/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: trimmedQ,
+          knowledgeContext: `அகரம் தினேஸ் ஆன்லைன் அகாடமி (Agaram Dhines Online Academy)\nதலைமை ஆசான்: Mr. D. Dhineskumar\nபாடநெறி: தரம் 6 முதல் 13 வரையிலான இலங்கைத் தமிழ் பாடத்திட்டம் மற்றும் 30 நாள் இலக்கணப் பாடநெறி.\n\nகட்டளை: மாணவர் கேட்ட வினாவிற்கு (வினா: ${trimmedQ}) RAG 4-அடுக்குக் கட்டமைப்பில் (1.வரையறை, 2.வகைகள், 3.சான்றுகள், 4.பரீட்சைக் குறிப்புகள்) ஒரு சிறந்த ஆசிரியர் கற்பிப்பது போல் துல்லியமான விளக்கத்தை வழங்கவும்.`,
+          chatHistory: chatHistory.slice(-6),
+          imageBase64,
+          imageMimeType,
+          model: "gemini-flash-lite-latest",
+          answerLength: answerLength || "detailed"
+        })
+      });
 
-  let fallbackParts: string[] = [];
-  fallbackParts.push(`வணக்கம் அன்புச் செல்வமே! நீங்கள் கேட்ட "${trimmedQ}" தொடர்பான பாடக்குறிப்பு அல்லது விளக்கம் நமது அகரம் தினேஸ் அகாடமியின் உத்தியோகபூர்வ பதிவுகளில் தற்போது இன்னும் இணைக்கப்படவில்லை.\n`);
-  fallbackParts.push(`தலைமை ஆசான் திரு. D. தினேஷ்குமார் அவர்கள் விரைவில் இப்பகுதிக்குரிய பாடக்குறிப்புகளை நமது அகாடமி அறிவுத்தளத்தில் பதிவேற்றுவார்.\n`);
-
-  if (recentMaterials.length > 0) {
-    fallbackParts.push(`📚 **ஆசிரியரின் பிற முக்கிய பாடப் பதிவுகள்:**`);
-    recentMaterials.forEach((m: any) => {
-      fallbackParts.push(`• **${m.title}** [${m.grade || 'பொது'}] *(ஆசிரியரின் பாடப் பதிவு)*`);
-    });
-    fallbackParts.push(``);
+      if (askRes.ok) {
+        const data = await askRes.json();
+        if (data.text && typeof data.text === "string" && data.text.trim()) {
+          return {
+            answer: data.text.trim(),
+            usedSources: [],
+            suggestedFollowUps: [
+              "மேலதிக உதாரணங்கள் தருக",
+              "இலக்கணப் பயிற்சி வினாக்கள்",
+              "30 நாள் பாடநெறி விபரம்"
+            ]
+          };
+        }
+      }
+    } catch (e) {
+      console.warn("Curriculum fallback explanation failed:", e);
+    }
   }
 
-  fallbackParts.push(`உடனடி உதவி அல்லது பாட விளக்கம் தேவைப்படின், தலைமை ஆசானை நேரடியாக WhatsApp மூலம் தொடர்பு கொள்ளலாம்:`);
-  fallbackParts.push(`📞 **WhatsApp:** 0778054232 (https://wa.me/94778054232)`);
+  // If strictMode is ON or server call fails, honestly inform student
+  let fallbackParts: string[] = [];
+  fallbackParts.push(`ஆசிரியரின் வழங்கப்பட்ட பாடக்குறிப்பில் இதற்கான தகவல் கிடைக்கவில்லை.`);
 
   return {
     answer: fallbackParts.join("\n"),
     usedSources: [],
     suggestedFollowUps: [
-      "தரம் 10 பாட விளக்கம்",
-      "தரம் 11 பாட விளக்கம்",
-      "30 நாள் பாடநெறி விபரம்",
-      "WhatsApp-ல் ஆசானைத் தொடர்பு கொள்"
+      "தரம் 10 பாடக்குறிப்புகள்",
+      "தரம் 11 பாடக்குறிப்புகள்",
+      "30 நாள் பாடநெறி விபரம்"
     ]
   };
 };
@@ -572,8 +808,8 @@ export const playTeacherVoice = async (
   onAudioEnd?: () => void,
   directAudioUrl?: string
 ): Promise<() => void> => {
-  // 0. If direct audio file exists (e.g. Teacher's recorded voice) or is welcome text
-  let audioFileToPlay = directAudioUrl || (settings.welcomeAudioUrl && (text === settings.welcomeVoiceText || text.includes("வணக்கம் அன்புச் செல்வமே") || text.includes("வணக்கம் மாணவர்களே")) ? settings.welcomeAudioUrl : null);
+  // 0. If direct audio file exists (e.g. Teacher's recorded voice) or is specifically welcome text
+  let audioFileToPlay = directAudioUrl || (settings.welcomeAudioUrl && text.trim() === settings.welcomeVoiceText?.trim() ? settings.welcomeAudioUrl : null);
   if (audioFileToPlay) {
     try {
       if (audioFileToPlay.startsWith('firestore-media://')) {
@@ -612,41 +848,58 @@ export const playTeacherVoice = async (
     .replace(/[\u{1F300}-\u{1F9FF}]/gu, '') // strip emoji icons from TTS speech
     .slice(0, 2000); // Allow full conversational answer up to 2000 chars
 
-  // 1. Try ElevenLabs Cloned Voice if API key and Voice ID are configured
-  if (settings.voiceProvider === 'elevenlabs' && settings.elevenLabsApiKey && settings.elevenLabsVoiceId) {
+  // 1. Try ElevenLabs Cloned Voice via secure server-side proxy (Bypasses Browser CORS restrictions)
+  const elevenKey = settings.elevenLabsApiKey?.trim();
+  const elevenVoice = settings.elevenLabsVoiceId?.trim();
+  const shouldUseEleven = settings.voiceProvider === 'elevenlabs' || (elevenKey && elevenVoice);
+
+  if (shouldUseEleven) {
     try {
-      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${settings.elevenLabsVoiceId}`, {
+      const response = await fetch('/api/elevenlabs-tts', {
         method: 'POST',
         headers: {
-          'Accept': 'audio/mpeg',
-          'Content-Type': 'application/json',
-          'xi-api-key': settings.elevenLabsApiKey
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           text: cleanSpeechText,
-          model_id: 'eleven_multilingual_v2',
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.85
-          }
+          voiceId: elevenVoice,
+          apiKey: elevenKey,
+          stability: 0.5,
+          similarity_boost: 0.85
         })
       });
 
       if (response.ok) {
-        const audioBlob = await response.blob();
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const audio = new Audio(audioUrl);
-        if (onAudioStart) onAudioStart();
-        audio.onended = () => {
-          if (onAudioEnd) onAudioEnd();
-          URL.revokeObjectURL(audioUrl);
-        };
-        audio.play().catch(() => {});
-        return () => {
-          audio.pause();
-          audio.currentTime = 0;
-          if (onAudioEnd) onAudioEnd();
-        };
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('audio')) {
+          const audioBlob = await response.blob();
+          if (audioBlob && audioBlob.size > 200) {
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            if (onAudioStart) onAudioStart();
+            audio.onended = () => {
+              if (onAudioEnd) onAudioEnd();
+              URL.revokeObjectURL(audioUrl);
+            };
+            audio.onerror = () => {
+              if (onAudioEnd) onAudioEnd();
+              URL.revokeObjectURL(audioUrl);
+            };
+            await audio.play();
+            return () => {
+              audio.pause();
+              audio.currentTime = 0;
+              if (onAudioEnd) onAudioEnd();
+            };
+          }
+        } else {
+          // Response is JSON fallback (e.g., key format warning or quota)
+          const fallbackData = await response.json().catch(() => ({}));
+          console.info("ElevenLabs voice fallback note:", fallbackData?.error || "Smoothly falling back to browser speech");
+        }
+      } else {
+        const errJson = await response.json().catch(() => ({}));
+        console.warn("ElevenLabs server proxy returned error:", response.status, errJson);
       }
     } catch (e) {
       console.warn("ElevenLabs cloned voice playback failed, falling back to browser speech:", e);
@@ -654,6 +907,7 @@ export const playTeacherVoice = async (
   }
 
   // 2. High Quality Browser Native Tamil Voice Fallback
+
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(cleanSpeechText);
