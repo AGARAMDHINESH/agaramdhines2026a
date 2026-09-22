@@ -186,6 +186,59 @@ const setupRealtimeListener = (key: string) => {
       activeListeners[`${key}_col`] = colUnsub;
     }
 
+    // Also listen to collection changes for youtubeLinks so videos are never lost
+    if (key === 'youtubeLinks') {
+      const colUnsub = onSnapshot(collection(db, 'youtubeLinks'), (colSnap) => {
+        if (!colSnap.empty) {
+          const list = colSnap.docs.map(d => ({ ...d.data(), id: d.id }));
+          
+          let deletedIds: string[] = [];
+          try {
+            const rawDeleted = localStorage.getItem('youtubeLinks_deleted');
+            if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
+          } catch (_) {}
+
+          let localLinks: any[] = [];
+          try {
+            const rawLocal = localStorage.getItem('youtubeLinks');
+            if (rawLocal) localLinks = JSON.parse(rawLocal);
+          } catch (_) {}
+
+          const merged = mergeArraysById(list, localLinks).filter(u => !deletedIds.includes(String(u.id)));
+          
+          merged.sort((a: any, b: any) => {
+            const timeA = new Date(a.date || a.createdAt || a.updatedAt || 0).getTime() || 0;
+            const timeB = new Date(b.date || b.createdAt || b.updatedAt || 0).getTime() || 0;
+            return timeB - timeA;
+          });
+
+          const sanitized = merged.map(item => {
+            if (!item) return item;
+            let subject = item.subject;
+            if (typeof subject === 'string' && subject.trim().toLowerCase() === 'tamil') {
+              subject = 'தமிழ்';
+            }
+            let subjects = item.subjects;
+            if (Array.isArray(subjects)) {
+              subjects = sanitizeSubjectList(subjects);
+            }
+            return { ...item, subject, subjects };
+          });
+          
+          try {
+            localStorage.setItem('youtubeLinks', JSON.stringify(sanitized));
+          } catch (_) {}
+
+          window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'youtubeLinks', data: sanitized } }));
+        }
+      }, (err: any) => {
+        if (err?.code !== 'unavailable') {
+          console.warn("Realtime youtubeLinks collection error:", err?.message || err);
+        }
+      });
+      activeListeners[`${key}_col`] = colUnsub;
+    }
+
     activeListeners[key] = unsub;
   } catch (e) {
     console.warn(`Failed to setup realtime listener for ${key}:`, e);
@@ -1791,6 +1844,46 @@ export const getYoutubeLinks = async (): Promise<any[]> => {
   return sanitized;
 };
 
+export const addYoutubeLink = async (newLink: any): Promise<any[]> => {
+  if (!newLink) return await getYoutubeLinks();
+  
+  const linkId = String(newLink.id || Date.now());
+  const preparedLink = {
+    ...newLink,
+    id: linkId,
+    updatedAt: newLink.updatedAt || new Date().toISOString(),
+    date: newLink.date || new Date().toISOString()
+  };
+
+  // 1. Immediately write directly to individual Firestore document in collection 'youtubeLinks'
+  if (isFirebaseConfigured) {
+    try {
+      await setDoc(doc(db, 'youtubeLinks', linkId), preparedLink, { merge: true });
+    } catch (err) {
+      console.warn("Direct doc write failed for youtubeLink, fallback to singleton batch:", err);
+    }
+  }
+
+  // 2. Clear from deletedIds if present
+  try {
+    const rawDeleted = localStorage.getItem('youtubeLinks_deleted');
+    if (rawDeleted) {
+      const deletedIds: string[] = JSON.parse(rawDeleted);
+      const cleaned = deletedIds.filter(d => d !== linkId);
+      localStorage.setItem('youtubeLinks_deleted', JSON.stringify(cleaned));
+    }
+  } catch (_) {}
+
+  // 3. Fetch existing to ensure we never overwrite concurrent links
+  const existing = await getYoutubeLinks();
+  const updated = mergeArraysById([preparedLink], existing);
+  
+  // 4. Save merged list to singleton and cache
+  await saveYoutubeLinks(updated);
+
+  return updated;
+};
+
 export const saveYoutubeLinks = async (links: any) => {
   const cleanList = Array.isArray(links) ? links : [];
 
@@ -1813,24 +1906,28 @@ export const saveYoutubeLinks = async (links: any) => {
 
   if (isFirebaseConfigured) {
     try {
-      const savePromises = cleanList.map(item => {
-        if (item && item.id) {
-          return setDoc(doc(db, 'youtubeLinks', String(item.id)), {
-            ...item,
-            updatedAt: item.updatedAt || new Date().toISOString()
-          }, { merge: true });
-        }
-        return Promise.resolve();
-      });
+      // 1. Save singleton doc
+      await setDoc(doc(db, 'singletons', 'youtubeLinks'), {
+        data: cleanList,
+        updatedAt: Date.now()
+      }, { merge: false });
 
-      savePromises.push(
-        setDoc(doc(db, 'singletons', 'youtubeLinks'), {
-          data: cleanList,
-          updatedAt: Date.now()
-        }, { merge: false })
-      );
-
-      await Promise.race([Promise.all(savePromises), new Promise(res => setTimeout(res, 4000))]);
+      // 2. Batch write individual documents into collection 'youtubeLinks' using writeBatch
+      // Each batch handles up to 400 docs in an atomic round-trip
+      const CHUNK_SIZE = 400;
+      for (let i = 0; i < cleanList.length; i += CHUNK_SIZE) {
+        const chunk = cleanList.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        chunk.forEach(item => {
+          if (item && item.id) {
+            batch.set(doc(db, 'youtubeLinks', String(item.id)), {
+              ...item,
+              updatedAt: item.updatedAt || new Date().toISOString()
+            }, { merge: true });
+          }
+        });
+        await batch.commit();
+      }
     } catch (e) {
       console.warn("Firebase saveYoutubeLinks error:", e);
     }
@@ -1841,6 +1938,17 @@ export const saveYoutubeLinks = async (links: any) => {
 
 export const deleteYoutubeLink = async (id: string | number) => {
   const targetId = String(id);
+
+  // 1. Delete directly from Firestore collection
+  if (isFirebaseConfigured) {
+    try {
+      await deleteDoc(doc(db, 'youtubeLinks', targetId));
+    } catch (e) {
+      console.warn("Firebase deleteDoc error for youtubeLink:", e);
+    }
+  }
+
+  // 2. Mark in deleted list
   try {
     const rawDeleted = localStorage.getItem('youtubeLinks_deleted') || '[]';
     const deletedIds: string[] = JSON.parse(rawDeleted);
@@ -1850,15 +1958,28 @@ export const deleteYoutubeLink = async (id: string | number) => {
     }
   } catch (_) {}
 
-  const current = await getYoutubeLinks();
-  const updated = current.filter(m => String(m.id) !== targetId);
-  await saveYoutubeLinks(updated);
+  // 3. Update local cache & dispatch update
+  let currentLocal: any[] = [];
+  try {
+    const rawLocal = localStorage.getItem('youtubeLinks');
+    if (rawLocal) currentLocal = JSON.parse(rawLocal);
+  } catch (_) {}
+  const updated = currentLocal.filter(m => String(m.id) !== targetId);
+  try {
+    localStorage.setItem('youtubeLinks', JSON.stringify(updated));
+  } catch (_) {}
+  window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'youtubeLinks', data: updated } }));
 
+  // 4. Update singleton in Firestore
   if (isFirebaseConfigured) {
     try {
-      await deleteDoc(doc(db, 'youtubeLinks', targetId));
+      await setDoc(doc(db, 'singletons', 'youtubeLinks'), {
+        data: updated,
+        updatedAt: Date.now()
+      }, { merge: false });
     } catch (_) {}
   }
+
   return updated;
 };
 

@@ -13,6 +13,7 @@ export interface RecordingItem {
   id: string;
   grade?: string;
   grades?: string[];
+  isPublic?: boolean;
   subject?: string;
   subjects?: string[];
   title: string;
@@ -570,6 +571,19 @@ export const normalizeGradeString = (g?: string): string => {
 
 export const doesItemMatchGrade = (item: RecordingItem, targetGrade: string): boolean => {
   if (!item || !targetGrade) return false;
+
+  const isItemPublic = !!item.isPublic || String(item.grade || '').toLowerCase().includes('public');
+
+  // If item is public or marked for all students, it always matches any student grade
+  if (isItemPublic) {
+    return true;
+  }
+
+  // If target grade is Public / All Students, match public items or general items
+  if (String(targetGrade).toLowerCase().includes('public')) {
+    return isItemPublic;
+  }
+
   const normTarget = normalizeGradeString(targetGrade);
   const targetDigits = targetGrade.toString().replace(/[^0-9]/g, '');
   const targetNum = targetDigits ? parseInt(targetDigits, 10) : null;

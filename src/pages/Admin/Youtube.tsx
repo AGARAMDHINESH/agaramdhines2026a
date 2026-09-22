@@ -1,6 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { Youtube as YoutubeIcon, PlayCircle, Trash2, ArrowLeft, Plus, ExternalLink, BookOpen, Folder, Globe, FileText, LayoutGrid, List, Share2, ChevronDown } from 'lucide-react';
-import { getYoutubeLinks, saveYoutubeLinks, getWebPosts, saveWebPosts, addNotification, getSubjects, saveSubjects, deleteSubject, getClasses, saveClasses } from '../../lib/db';
+import { 
+  getYoutubeLinks, 
+  saveYoutubeLinks, 
+  addYoutubeLink, 
+  deleteYoutubeLink, 
+  getWebPosts, 
+  saveWebPosts, 
+  addNotification, 
+  getSubjects, 
+  saveSubjects, 
+  deleteSubject, 
+  getClasses, 
+  saveClasses 
+} from '../../lib/db';
 import { getCanonicalSubjectCategory } from '../../components/RecordingSection';
 
 export default function Youtube() {
@@ -78,15 +91,22 @@ export default function Youtube() {
     if (!window.confirm(`இந்த கோப்பை ("${folderName}") மற்றும் அதிலுள்ள அனைத்து விபரங்களையும் நிச்சயமாக நீக்க வேண்டுமா?`)) return;
 
     if (activeTab === 'youtube') {
-      const updatedLinks = links.filter(l => {
-        const isCurrentGrade = selectedGrade === "Public (All Students)" ? l.isPublic : l.grade === selectedGrade;
-        return !(l.folder === folderName && isCurrentGrade);
+      const itemsToDelete = links.filter(l => {
+        const isCurrentGrade = selectedGrade === "Public (All Students)" 
+          ? (l.isPublic || String(l.grade).trim().toLowerCase() === 'public')
+          : isSameGrade(l.grade, selectedGrade);
+        return l.folder === folderName && isCurrentGrade;
       });
+      for (const item of itemsToDelete) {
+        await deleteYoutubeLink(item.id);
+      }
+      const updatedLinks = links.filter(l => !itemsToDelete.some(it => it.id === l.id));
       setLinks(updatedLinks);
-      await saveYoutubeLinks(updatedLinks);
     } else {
       const updatedPosts = webPosts.filter(p => {
-        const isCurrentGrade = selectedGrade === "Public (All Students)" ? p.isPublic : p.grade === selectedGrade;
+        const isCurrentGrade = selectedGrade === "Public (All Students)" 
+          ? (p.isPublic || String(p.grade).trim().toLowerCase() === 'public')
+          : isSameGrade(p.grade, selectedGrade);
         return !(p.folder === folderName && isCurrentGrade);
       });
       setWebPosts(updatedPosts);
@@ -99,9 +119,12 @@ export default function Youtube() {
     if (!window.confirm(`இந்த பாடத்தை ("${subjectName}") மற்றும் அதிலுள்ள அனைத்து விபரங்களையும் நிச்சயமாக நீக்க வேண்டுமா?`)) return;
 
     if (activeTab === 'youtube') {
-      const updatedLinks = links.filter(l => l.subject !== subjectName && (!Array.isArray(l.subjects) || !l.subjects.includes(subjectName)));
+      const itemsToDelete = links.filter(l => l.subject === subjectName || (Array.isArray(l.subjects) && l.subjects.includes(subjectName)));
+      for (const item of itemsToDelete) {
+        await deleteYoutubeLink(item.id);
+      }
+      const updatedLinks = links.filter(l => !itemsToDelete.some(it => it.id === l.id));
       setLinks(updatedLinks);
-      await saveYoutubeLinks(updatedLinks);
     } else {
       const updatedPosts = webPosts.filter(p => p.subject !== subjectName && (!Array.isArray(p.subjects) || !p.subjects.includes(subjectName)));
       setWebPosts(updatedPosts);
@@ -129,12 +152,24 @@ export default function Youtube() {
   });
 
   useEffect(() => {
-    Promise.all([getYoutubeLinks(), getWebPosts(), getSubjects(), getClasses()]).then(([linksData, postsData, subjectsData, classesData]) => {
-      setLinks(Array.isArray(linksData) ? linksData : []);
-      setWebPosts(Array.isArray(postsData) ? postsData : []);
-      setDbSubjects(Array.isArray(subjectsData) ? subjectsData : []);
-      setDbClasses(Array.isArray(classesData) ? classesData : []);
-    });
+    const loadAll = () => {
+      Promise.all([getYoutubeLinks(), getWebPosts(), getSubjects(), getClasses()]).then(([linksData, postsData, subjectsData, classesData]) => {
+        setLinks(Array.isArray(linksData) ? linksData : []);
+        setWebPosts(Array.isArray(postsData) ? postsData : []);
+        setDbSubjects(Array.isArray(subjectsData) ? subjectsData : []);
+        setDbClasses(Array.isArray(classesData) ? classesData : []);
+      });
+    };
+    loadAll();
+
+    const handleDbUpdate = (e: any) => {
+      const key = e.detail?.key;
+      if (['youtubeLinks', 'webPosts', 'subjects', 'classes'].includes(key)) {
+        loadAll();
+      }
+    };
+    window.addEventListener('db_updated', handleDbUpdate);
+    return () => window.removeEventListener('db_updated', handleDbUpdate);
   }, []);
 
   const GRADES = [
@@ -239,7 +274,13 @@ export default function Youtube() {
   // Get unique folders relative to active tab and selected grade
   const tabFolders = Array.from(new Set(
     (activeTab === 'youtube' ? links : webPosts)
-      .filter(item => item.grade === selectedGrade || (selectedGrade === "Public (All Students)" && item.isPublic))
+      .filter(item => {
+        if (!item) return false;
+        if (selectedGrade === "Public (All Students)") {
+          return item.isPublic || String(item.grade).trim().toLowerCase() === 'public';
+        }
+        return isSameGrade(item.grade, selectedGrade);
+      })
       .map(item => item.folder)
   )).filter((f): f is string => !!f).sort();
 
@@ -290,9 +331,9 @@ export default function Youtube() {
         date: new Date().toISOString()
       };
       
-      const updatedLinks = [...links, newLink];
+      // Directly persist to database & Firestore collection
+      const updatedLinks = await addYoutubeLink(newLink);
       setLinks(updatedLinks);
-      await saveYoutubeLinks(updatedLinks);
 
       // Add Notification
       if (newLink.grade) {
@@ -349,9 +390,8 @@ export default function Youtube() {
   const handleDelete = async (id: string) => {
     if (window.confirm(`Are you sure you want to delete this ${activeTab === 'youtube' ? 'video' : 'post'}?`)) {
       if (activeTab === 'youtube') {
-        const updatedLinks = links.filter(l => l.id !== id);
+        const updatedLinks = await deleteYoutubeLink(id);
         setLinks(updatedLinks);
-        await saveYoutubeLinks(updatedLinks);
       } else {
         const updatedPosts = webPosts.filter(p => p.id !== id);
         setWebPosts(updatedPosts);
@@ -456,8 +496,8 @@ export default function Youtube() {
 
   if (selectedGrade) {
     const isGradePublic = selectedGrade === "Public (All Students)";
-    const rawGradeLinks = links.filter(l => l && (isGradePublic ? l.isPublic : l.grade === selectedGrade));
-    const rawGradePosts = webPosts.filter(p => p && (isGradePublic ? p.isPublic : p.grade === selectedGrade));
+    const rawGradeLinks = links.filter(l => l && (isGradePublic ? (l.isPublic || String(l.grade).trim().toLowerCase() === 'public') : isSameGrade(l.grade, selectedGrade)));
+    const rawGradePosts = webPosts.filter(p => p && (isGradePublic ? (p.isPublic || String(p.grade).trim().toLowerCase() === 'public') : isSameGrade(p.grade, selectedGrade)));
 
     // Filter by selectedAdminSubject with category awareness
     const doesMatchSelectedAdminSubject = (item: any, targetSubject: string) => {
@@ -1253,8 +1293,8 @@ export default function Youtube() {
         <div className={viewType === 'grid' ? "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4" : "space-y-2"}>
           {GRADES.map((grade) => {
             const isPublicBtn = grade === "Public (All Students)";
-            const vCount = links.filter(l => l && (isPublicBtn ? l.isPublic : l.grade === grade)).length;
-            const pCount = webPosts.filter(p => p && (isPublicBtn ? p.isPublic : p.grade === grade)).length;
+            const vCount = links.filter(l => l && (isPublicBtn ? (l.isPublic || String(l.grade).trim().toLowerCase() === 'public') : isSameGrade(l.grade, grade))).length;
+            const pCount = webPosts.filter(p => p && (isPublicBtn ? (p.isPublic || String(p.grade).trim().toLowerCase() === 'public') : isSameGrade(p.grade, grade))).length;
             
             if (viewType === 'grid') {
               return (

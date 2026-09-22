@@ -721,6 +721,11 @@ export default function StudentDashboard() {
       const filterItemByGradeAndSubject = (c: any) => {
         if (!c) return false;
 
+        // Public E-Learning content is accessible to all students
+        if (c.isPublic === true || String(c.grade || '').trim().toLowerCase() === 'public' || String(c.grade || '').includes('Public')) {
+          return true;
+        }
+
         // 1. Grade Isolation: Item MUST strictly match this student's grade (e.g. தரம் 01 only for தரம் 01)
         const targetStudentGrade = freshStudentData.grade || "தரம் 10";
         const matchesGrade = doesItemMatchGrade(c, targetStudentGrade);
