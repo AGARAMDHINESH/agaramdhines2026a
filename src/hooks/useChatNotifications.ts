@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { getChatMessages, getClasses } from '../lib/db';
+import { safeGetItem, safeSetItem } from '../lib/safeStorage';
 
 export function useChatNotifications(currentUser: { id: string, name: string, role: string, grade?: string } | null, isChatOpen: boolean = false) {
   const [unreadCount, setUnreadCount] = useState(0);
@@ -17,11 +18,7 @@ export function useChatNotifications(currentUser: { id: string, name: string, ro
       try {
         if (isChatOpen) {
           // If chat is open, automatically mark as read and don't show notifications
-          try {
-            localStorage.setItem(`lastChatRead_${currentUser.id}`, new Date().toISOString());
-          } catch (e) {
-            console.warn("Failed to save lastChatRead to localStorage", e);
-          }
+          safeSetItem(`lastChatRead_${currentUser.id}`, new Date().toISOString());
           setUnreadCount(0);
           return;
         }
@@ -31,17 +28,13 @@ export function useChatNotifications(currentUser: { id: string, name: string, ro
           getClasses()
         ]);
         
-        let lastReadStr = localStorage.getItem(`lastChatRead_${currentUser.id}`);
+        let lastReadStr = safeGetItem(`lastChatRead_${currentUser.id}`);
         let lastReadTime = lastReadStr ? new Date(lastReadStr).getTime() : 0;
         
         // If no last read time exists, set it to now so old messages don't trigger notifications
         if (!lastReadStr) {
           lastReadTime = Date.now();
-          try {
-            localStorage.setItem(`lastChatRead_${currentUser.id}`, new Date(lastReadTime).toISOString());
-          } catch (e) {
-            console.warn("Failed to save initial lastChatRead", e);
-          }
+          safeSetItem(`lastChatRead_${currentUser.id}`, new Date(lastReadTime).toISOString());
         }
         
         // Find student's class ID if they are a student
@@ -105,11 +98,7 @@ export function useChatNotifications(currentUser: { id: string, name: string, ro
 
   const markAsRead = () => {
     if (currentUser?.id) {
-      try {
-        localStorage.setItem(`lastChatRead_${currentUser.id}`, new Date().toISOString());
-      } catch (e) {
-        console.warn("Failed to save lastChatRead to localStorage", e);
-      }
+      safeSetItem(`lastChatRead_${currentUser.id}`, new Date().toISOString());
       setUnreadCount(0);
     }
   };

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { db, isFirebaseConfigured } from '../lib/firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { updateAppBadge, showSystemNotification } from '../lib/badgeManager';
+import { safeGetItem, safeSetItem } from '../lib/safeStorage';
 
 export function useRealtimeNotifications(grade: string | undefined, onNewNotification?: (notif: any) => void) {
   useEffect(() => {
@@ -19,7 +20,7 @@ export function useRealtimeNotifications(grade: string | undefined, onNewNotific
     const badgeKey = `app_badge_count_${grade}`;
     
     // Initial badge from storage
-    const currentBadge = parseInt(localStorage.getItem(badgeKey) || "0", 10);
+    const currentBadge = parseInt(safeGetItem(badgeKey) || "0", 10);
     if (currentBadge > 0) {
       updateAppBadge(currentBadge);
     }
@@ -42,8 +43,8 @@ export function useRealtimeNotifications(grade: string | undefined, onNewNotific
             console.log("Real-time notification received:", notification);
             
             // Increment and set badge
-            const newBadge = parseInt(localStorage.getItem(badgeKey) || "0", 10) + 1;
-            localStorage.setItem(badgeKey, newBadge.toString());
+            const newBadge = parseInt(safeGetItem(badgeKey) || "0", 10) + 1;
+            safeSetItem(badgeKey, newBadge.toString());
             updateAppBadge(newBadge);
 
             // Trigger System Notification (Notification Bar / Lock screen)

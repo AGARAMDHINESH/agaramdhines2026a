@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { getAnnouncements } from "../lib/db";
+import { safeGetItem, safeSetItem } from "../lib/safeStorage";
 import { X, Megaphone } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -21,7 +22,10 @@ export default function PopupAnnouncement({ userRole }: { userRole: string }) {
         relevantAds.sort((a, b) => new Date(b.dateAdded || b.createdAt).getTime() - new Date(a.dateAdded || a.createdAt).getTime());
         
         // Find the first ad that hasn't been dismissed yet
-        const dismissedAds = JSON.parse(localStorage.getItem("dismissedAds") || "[]");
+        let dismissedAds: string[] = [];
+        try {
+          dismissedAds = JSON.parse(safeGetItem("dismissedAds") || "[]");
+        } catch (_) {}
         const nextAd = relevantAds.find(ad => {
           const adId = ad.id || `${ad.title}-${ad.dateAdded || ad.createdAt}`.replace(/\s+/g, '-');
           return !dismissedAds.includes(adId);
@@ -39,8 +43,12 @@ export default function PopupAnnouncement({ userRole }: { userRole: string }) {
 
   const handleDismiss = () => {
     if (activeAd) {
-      const dismissedAds = JSON.parse(localStorage.getItem("dismissedAds") || "[]");
-      localStorage.setItem("dismissedAds", JSON.stringify([...dismissedAds, activeAd.id]));
+      let dismissedAds: string[] = [];
+      try {
+        dismissedAds = JSON.parse(safeGetItem("dismissedAds") || "[]");
+      } catch (_) {}
+      const updated = [...dismissedAds, activeAd.id].slice(-30);
+      safeSetItem("dismissedAds", JSON.stringify(updated));
       setActiveAd(null);
     }
   };

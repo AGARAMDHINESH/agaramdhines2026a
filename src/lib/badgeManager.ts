@@ -1,3 +1,5 @@
+import { safeSetItem } from './safeStorage';
+
 /**
  * Badge & Background Notification Manager
  * Handles Web App Badging API (navigator.setAppBadge, navigator.clearAppBadge),
@@ -49,8 +51,8 @@ export const getUnattendedExams = (
 export const updateAppBadge = (count: number): void => {
   const safeCount = Math.max(0, Math.floor(count || 0));
 
-  // Store in localStorage for persistence
-  localStorage.setItem('agaram_app_badge_count', safeCount.toString());
+  // Store in localStorage safely for persistence
+  safeSetItem('agaram_app_badge_count', safeCount.toString());
 
   // 1. Mobile & PWA App Badging API
   if (typeof navigator !== 'undefined' && 'setAppBadge' in navigator) {

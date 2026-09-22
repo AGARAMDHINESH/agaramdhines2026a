@@ -5,15 +5,22 @@ import {
   getFirestore, 
   persistentLocalCache, 
   persistentMultipleTabManager,
+  persistentSingleTabManager,
   setLogLevel,
   doc,
   setDoc
 } from "firebase/firestore";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { purgeBloatedStorage } from "./safeStorage";
 
 // Suppress transient backend unreachable / offline warnings from cluttering console
 try {
   setLogLevel('error');
+} catch (_) {}
+
+// Purge any bloated legacy items so Firestore tab manager and client state never hit storage quota
+try {
+  purgeBloatedStorage();
 } catch (_) {}
 
 // Your web app's Firebase configuration
@@ -45,11 +52,21 @@ try {
 } catch (_) {
   try {
     firestoreDb = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentSingleTabManager({})
+      }),
       experimentalAutoDetectLongPolling: true,
       ignoreUndefinedProperties: true
     });
   } catch (__) {
-    firestoreDb = getFirestore(app);
+    try {
+      firestoreDb = initializeFirestore(app, {
+        experimentalAutoDetectLongPolling: true,
+        ignoreUndefinedProperties: true
+      });
+    } catch (___) {
+      firestoreDb = getFirestore(app);
+    }
   }
 }
 export const db = firestoreDb;

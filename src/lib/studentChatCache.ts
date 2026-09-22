@@ -5,6 +5,8 @@
  * without cluttering the Academy's central database.
  */
 
+import { safeGetItem, safeSetItem, safeRemoveItem } from "./safeStorage";
+
 export interface StudentSearchItem {
   id: string;
   question: string;
@@ -19,17 +21,14 @@ export interface StudentSearchItem {
 const STORAGE_KEY = "agaram_tamil_asan_student_history_v1";
 
 export const getStudentSearchHistory = (): StudentSearchItem[] => {
-  if (typeof window === "undefined" || !window.localStorage) {
-    return [];
-  }
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = safeGetItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed;
   } catch (e) {
-    console.error("Failed to load student search history from localStorage:", e);
+    console.error("Failed to load student search history:", e);
     return [];
   }
 };
@@ -49,13 +48,9 @@ export const saveStudentSearchItem = (item: Omit<StudentSearchItem, "id" | "time
 
   // Check if identical question already exists, replace or prepend
   const filtered = current.filter(c => c.question.toLowerCase() !== newItem.question.toLowerCase());
-  const updated = [newItem, ...filtered].slice(0, 150); // keep up to 150 cached items locally
+  const updated = [newItem, ...filtered].slice(0, 30); // keep up to 30 cached items locally
 
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  } catch (e) {
-    console.warn("Failed to write search item to localStorage:", e);
-  }
+  safeSetItem(STORAGE_KEY, JSON.stringify(updated));
 
   return newItem;
 };
@@ -69,11 +64,7 @@ export const togglePinStudentSearchItem = (id: string): StudentSearchItem[] => {
     return item;
   });
 
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  } catch (e) {
-    console.warn("Failed to update pinned state:", e);
-  }
+  safeSetItem(STORAGE_KEY, JSON.stringify(updated));
 
   return updated;
 };
@@ -82,19 +73,11 @@ export const deleteStudentSearchItem = (id: string): StudentSearchItem[] => {
   const current = getStudentSearchHistory();
   const updated = current.filter(item => item.id !== id);
 
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  } catch (e) {
-    console.warn("Failed to delete item from localStorage:", e);
-  }
+  safeSetItem(STORAGE_KEY, JSON.stringify(updated));
 
   return updated;
 };
 
 export const clearStudentSearchHistory = (): void => {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch (e) {
-    console.warn("Failed to clear search history:", e);
-  }
+  safeRemoveItem(STORAGE_KEY);
 };

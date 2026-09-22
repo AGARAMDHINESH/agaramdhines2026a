@@ -73,6 +73,7 @@ import {
   showSystemNotification, 
   requestSystemNotificationPermission 
 } from "../../lib/badgeManager";
+import { safeGetItem, safeSetItem } from "../../lib/safeStorage";
 import OfficialReportCard, { ReportCardData, generateSingleStudentPdf } from "../../components/OfficialReportCard";
 
 export const normalizeSub = (str: string) => {
@@ -490,7 +491,7 @@ export default function StudentDashboard() {
 
   const clearBadge = () => {
     const badgeKey = `app_badge_count_${studentData?.grade}`;
-    localStorage.setItem(badgeKey, "0");
+    safeSetItem(badgeKey, "0");
     // Preserve unattended exams in the badge
     const remaining = unattendedExamsCount;
     setBadgeCount(remaining);
@@ -530,13 +531,13 @@ export default function StudentDashboard() {
         const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return timeB - timeA;
       }).slice(0, 50);
-      localStorage.setItem('notification_history', JSON.stringify(updated));
+      safeSetItem('notification_history', JSON.stringify(updated));
       return updated;
     });
 
     if (!notif._isInitial) {
       setNewNotification(notif);
-      const count = parseInt(localStorage.getItem(`app_badge_count_${studentData?.grade}`) || "0");
+      const count = parseInt(safeGetItem(`app_badge_count_${studentData?.grade}`) || "0");
       setBadgeCount(count);
       
       // Play a gentle notification sound

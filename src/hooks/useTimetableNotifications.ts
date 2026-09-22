@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getTimeTable } from '../lib/db';
+import { safeGetItem, safeSetItem, pruneStorage } from '../lib/safeStorage';
 
 export interface TimetableReminder {
   id: string;
@@ -40,8 +41,14 @@ export function useTimetableNotifications(
   userName?: string
 ) {
   const [reminders, setReminders] = useState<TimetableReminder[]>([]);
+  const notifiedKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
+    // Clean up any stale notification keys from previous days
+    try {
+      pruneStorage();
+    } catch (_) {}
+
     const checkTimetableSchedule = async () => {
       const timetable = await getTimeTable();
       if (!Array.isArray(timetable) || timetable.length === 0) {
@@ -116,8 +123,12 @@ export function useTimetableNotifications(
           // Browser Desktop Notification
           const entryId = entry.id || `${entry.grade || 'all'}_${entry.subject || 'sub'}_${entry.startTime || 'time'}`.replace(/[^a-zA-Z0-9]/g, '_');
           const notificationKey = `notified_tt_${entryId}_${todayStr}_${diffMinutes <= 30 ? '30m' : '60m'}`;
-          if (!localStorage.getItem(notificationKey)) {
-            localStorage.setItem(notificationKey, 'true');
+          
+          const alreadyNotified = notifiedKeysRef.current.has(notificationKey) || !!safeGetItem(notificationKey);
+
+          if (!alreadyNotified) {
+            notifiedKeysRef.current.add(notificationKey);
+            safeSetItem(notificationKey, 'true');
 
             if ('Notification' in window && Notification.permission === 'granted') {
               try {

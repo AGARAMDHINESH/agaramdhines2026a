@@ -1,6 +1,7 @@
 import { db, isFirebaseConfigured } from './firebase';
 import { collection, doc, getDocs, getDoc, setDoc, deleteDoc, writeBatch, query, where, onSnapshot } from 'firebase/firestore';
 import { getUserSession, clearUserSession } from './authSession';
+import { safeGetItem, safeSetItem, safeRemoveItem } from './safeStorage';
 
 // Real-time listener registry for Firebase singletons
 const activeListeners: Record<string, () => void> = {};
@@ -51,13 +52,13 @@ const setupRealtimeListener = (key: string) => {
           
           let deletedIds: string[] = [];
           try {
-            const rawDeleted = localStorage.getItem('dailyWorkUploads_deleted');
+            const rawDeleted = safeGetItem('dailyWorkUploads_deleted');
             if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
           } catch (_) {}
 
           let localUploads: any[] = [];
           try {
-            const rawLocal = localStorage.getItem('dailyWorkUploads');
+            const rawLocal = safeGetItem('dailyWorkUploads');
             if (rawLocal) localUploads = JSON.parse(rawLocal);
           } catch (_) {}
 
@@ -65,7 +66,7 @@ const setupRealtimeListener = (key: string) => {
           merged.sort((a: any, b: any) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
           
           try {
-            localStorage.setItem('dailyWorkUploads', JSON.stringify(merged));
+            safeSetItem('dailyWorkUploads', JSON.stringify(merged));
           } catch (_) {}
 
           window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'dailyWorkUploads', data: merged } }));
@@ -86,13 +87,13 @@ const setupRealtimeListener = (key: string) => {
           
           let deletedIds: string[] = [];
           try {
-            const rawDeleted = localStorage.getItem('courses_deleted');
+            const rawDeleted = safeGetItem('courses_deleted');
             if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
           } catch (_) {}
 
           let localCourses: any[] = [];
           try {
-            const rawLocal = localStorage.getItem('courses');
+            const rawLocal = safeGetItem('courses');
             if (rawLocal) localCourses = JSON.parse(rawLocal);
           } catch (_) {}
 
@@ -104,7 +105,7 @@ const setupRealtimeListener = (key: string) => {
           });
           
           try {
-            localStorage.setItem('courses', JSON.stringify(merged));
+            safeSetItem('courses', JSON.stringify(merged));
           } catch (_) {}
 
           window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'courses', data: merged } }));
@@ -125,20 +126,20 @@ const setupRealtimeListener = (key: string) => {
           
           let deletedIds: string[] = [];
           try {
-            const rawDeleted = localStorage.getItem('staffs_deleted');
+            const rawDeleted = safeGetItem('staffs_deleted');
             if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
           } catch (_) {}
 
           let localStaffs: any[] = [];
           try {
-            const rawLocal = localStorage.getItem('staffs');
+            const rawLocal = safeGetItem('staffs');
             if (rawLocal) localStaffs = JSON.parse(rawLocal);
           } catch (_) {}
 
           const merged = mergeArraysById(list, localStaffs).filter(u => !deletedIds.includes(String(u.id)));
           
           try {
-            localStorage.setItem('staffs', JSON.stringify(merged));
+            safeSetItem('staffs', JSON.stringify(merged));
           } catch (_) {}
 
           window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'staffs', data: merged } }));
@@ -159,13 +160,13 @@ const setupRealtimeListener = (key: string) => {
           
           let deletedIds: string[] = [];
           try {
-            const rawDeleted = localStorage.getItem('students_deleted');
+            const rawDeleted = safeGetItem('students_deleted');
             if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
           } catch (_) {}
 
           let localStudents: any[] = [];
           try {
-            const rawLocal = localStorage.getItem('students');
+            const rawLocal = safeGetItem('students');
             if (rawLocal) localStudents = JSON.parse(rawLocal);
           } catch (_) {}
 
@@ -173,7 +174,7 @@ const setupRealtimeListener = (key: string) => {
           const cleanMerged = deduplicateAndSanitizeStudents(merged);
           
           try {
-            localStorage.setItem('students', JSON.stringify(cleanMerged));
+            safeSetItem('students', JSON.stringify(cleanMerged));
           } catch (_) {}
 
           window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'students', data: cleanMerged } }));
@@ -194,13 +195,13 @@ const setupRealtimeListener = (key: string) => {
           
           let deletedIds: string[] = [];
           try {
-            const rawDeleted = localStorage.getItem('youtubeLinks_deleted');
+            const rawDeleted = safeGetItem('youtubeLinks_deleted');
             if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
           } catch (_) {}
 
           let localLinks: any[] = [];
           try {
-            const rawLocal = localStorage.getItem('youtubeLinks');
+            const rawLocal = safeGetItem('youtubeLinks');
             if (rawLocal) localLinks = JSON.parse(rawLocal);
           } catch (_) {}
 
@@ -226,7 +227,7 @@ const setupRealtimeListener = (key: string) => {
           });
           
           try {
-            localStorage.setItem('youtubeLinks', JSON.stringify(sanitized));
+            safeSetItem('youtubeLinks', JSON.stringify(sanitized));
           } catch (_) {}
 
           window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'youtubeLinks', data: sanitized } }));
@@ -263,7 +264,7 @@ export interface DbMetrics {
 const getStoredMetrics = (): DbMetrics => {
   const todayStr = new Date().toISOString().slice(0, 10);
   try {
-    const raw = localStorage.getItem('dbMetricsStats');
+    const raw = safeGetItem('dbMetricsStats');
     if (raw) {
       const parsed: DbMetrics = JSON.parse(raw);
       if (parsed.date !== todayStr) {
@@ -303,7 +304,7 @@ const recordReadOperation = (count: number = 1) => {
   metrics.totalReadsAllTime += count;
   metrics.lastReadTime = now;
   try {
-    localStorage.setItem('dbMetricsStats', JSON.stringify(metrics));
+    safeSetItem('dbMetricsStats', JSON.stringify(metrics));
   } catch (e) {}
 };
 
@@ -316,7 +317,7 @@ const recordWriteOperation = (count: number = 1) => {
   metrics.totalWritesAllTime += count;
   metrics.lastWriteTime = now;
   try {
-    localStorage.setItem('dbMetricsStats', JSON.stringify(metrics));
+    safeSetItem('dbMetricsStats', JSON.stringify(metrics));
   } catch (e) {}
 };
 
@@ -342,7 +343,7 @@ export const resetDbHealthMetrics = () => {
     lastWriteTime: null,
     lastReadTime: null,
   };
-  localStorage.setItem('dbMetricsStats', JSON.stringify(reset));
+  safeSetItem('dbMetricsStats', JSON.stringify(reset));
   return reset;
 };
 
@@ -407,7 +408,7 @@ export const getData = async (key: string, defaultValue: any) => {
 
   // Fallback to local store on computer if network fails or offline
   try {
-    const rawValue = localStorage.getItem(key);
+    const rawValue = safeGetItem(key);
     if (rawValue && rawValue !== 'undefined' && rawValue !== 'null') {
       recordReadOperation(1);
       return JSON.parse(rawValue);
@@ -427,10 +428,9 @@ export const saveData = async (key: string, data: any) => {
 
   recordWriteOperation(1);
 
-  // Store in local computer database
+  // Store in local computer database safely without quota crash
   try {
-    localStorage.setItem(key, JSON.stringify(cleanData));
-    localStorage.setItem(`${key}_lastSavedAt`, String(now));
+    safeSetItem(key, JSON.stringify(cleanData));
   } catch (e) {
     console.warn(`Failed to save ${key} to storage.`, e);
   }
@@ -695,13 +695,13 @@ export const getTamilAsanKnowledge = async (): Promise<TamilAsanKnowledgeItem[]>
 
   let deletedIds: string[] = [];
   try {
-    const rawDeleted = localStorage.getItem('tamilAsanKnowledge_deleted');
+    const rawDeleted = safeGetItem('tamilAsanKnowledge_deleted');
     if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
   } catch (_) {}
 
   let localItems: TamilAsanKnowledgeItem[] = [];
   try {
-    const rawLocal = localStorage.getItem('tamilAsanKnowledge');
+    const rawLocal = safeGetItem('tamilAsanKnowledge');
     if (rawLocal) localItems = JSON.parse(rawLocal);
   } catch (_) {}
 
@@ -729,7 +729,7 @@ export const getTamilAsanKnowledge = async (): Promise<TamilAsanKnowledgeItem[]>
 
   if (combined.length > 0) {
     try {
-      localStorage.setItem('tamilAsanKnowledge', JSON.stringify(combined));
+      safeSetItem('tamilAsanKnowledge', JSON.stringify(combined));
     } catch (_) {}
     return combined;
   }
@@ -762,16 +762,16 @@ export const saveTamilAsanKnowledge = async (items: TamilAsanKnowledgeItem[]) =>
 
   // Remove saved item IDs from deleted tombstone list if they were re-saved
   try {
-    const rawDeleted = localStorage.getItem('tamilAsanKnowledge_deleted');
+    const rawDeleted = safeGetItem('tamilAsanKnowledge_deleted');
     if (rawDeleted) {
       const deletedIds: string[] = JSON.parse(rawDeleted);
       const savedIds = cleanList.map(s => String(s.id));
       const cleanedDeleted = deletedIds.filter(d => !savedIds.includes(d));
-      localStorage.setItem('tamilAsanKnowledge_deleted', JSON.stringify(cleanedDeleted));
+      safeSetItem('tamilAsanKnowledge_deleted', JSON.stringify(cleanedDeleted));
     }
 
-    localStorage.setItem('tamilAsanKnowledge', JSON.stringify(cleanList));
-    localStorage.setItem('tamilAsanKnowledge_lastSavedAt', String(Date.now()));
+    safeSetItem('tamilAsanKnowledge', JSON.stringify(cleanList));
+    safeSetItem('tamilAsanKnowledge_lastSavedAt', String(Date.now()));
   } catch (e) {
     console.warn("Error caching tamilAsanKnowledge locally:", e);
   }
@@ -811,11 +811,11 @@ export const deleteTamilAsanKnowledge = async (id: string) => {
   const targetId = String(id);
   // Mark in tombstone
   try {
-    const rawDeleted = localStorage.getItem('tamilAsanKnowledge_deleted') || '[]';
+    const rawDeleted = safeGetItem('tamilAsanKnowledge_deleted') || '[]';
     const deletedIds: string[] = JSON.parse(rawDeleted);
     if (!deletedIds.includes(targetId)) {
       deletedIds.push(targetId);
-      localStorage.setItem('tamilAsanKnowledge_deleted', JSON.stringify(deletedIds.slice(-500)));
+      safeSetItem('tamilAsanKnowledge_deleted', JSON.stringify(deletedIds.slice(-500)));
     }
   } catch (_) {}
 
@@ -890,13 +890,13 @@ export const getAllUnifiedLinks = async (): Promise<UnifiedLinkItem[]> => {
 
   let deletedIds: string[] = [];
   try {
-    const rawDeleted = localStorage.getItem('allUnifiedLinks_deleted');
+    const rawDeleted = safeGetItem('allUnifiedLinks_deleted');
     if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
   } catch (_) {}
 
   let localLinks: UnifiedLinkItem[] = [];
   try {
-    const rawLocal = localStorage.getItem('allUnifiedLinks');
+    const rawLocal = safeGetItem('allUnifiedLinks');
     if (rawLocal) localLinks = JSON.parse(rawLocal);
   } catch (_) {}
 
@@ -925,7 +925,7 @@ export const getAllUnifiedLinks = async (): Promise<UnifiedLinkItem[]> => {
   if (combined.length > 0) {
     const sorted = [...combined].sort((a, b) => (Number(a.order) || 9999) - (Number(b.order) || 9999));
     try {
-      localStorage.setItem('allUnifiedLinks', JSON.stringify(sorted));
+      safeSetItem('allUnifiedLinks', JSON.stringify(sorted));
     } catch (_) {}
     return sorted;
   }
@@ -947,15 +947,15 @@ export const saveAllUnifiedLinks = async (links: UnifiedLinkItem[]) => {
   })).sort((a, b) => a.order - b.order);
 
   try {
-    const rawDeleted = localStorage.getItem('allUnifiedLinks_deleted');
+    const rawDeleted = safeGetItem('allUnifiedLinks_deleted');
     if (rawDeleted) {
       const deletedIds: string[] = JSON.parse(rawDeleted);
       const savedIds = ordered.map(s => String(s.id));
       const cleanedDeleted = deletedIds.filter(d => !savedIds.includes(d));
-      localStorage.setItem('allUnifiedLinks_deleted', JSON.stringify(cleanedDeleted));
+      safeSetItem('allUnifiedLinks_deleted', JSON.stringify(cleanedDeleted));
     }
-    localStorage.setItem('allUnifiedLinks', JSON.stringify(ordered));
-    localStorage.setItem('allUnifiedLinks_lastSavedAt', String(Date.now()));
+    safeSetItem('allUnifiedLinks', JSON.stringify(ordered));
+    safeSetItem('allUnifiedLinks_lastSavedAt', String(Date.now()));
   } catch (_) {}
 
   window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'allUnifiedLinks', data: ordered } }));
@@ -992,11 +992,11 @@ export const saveAllUnifiedLinks = async (links: UnifiedLinkItem[]) => {
 export const deleteUnifiedLink = async (id: string) => {
   const targetId = String(id);
   try {
-    const rawDeleted = localStorage.getItem('allUnifiedLinks_deleted') || '[]';
+    const rawDeleted = safeGetItem('allUnifiedLinks_deleted') || '[]';
     const deletedIds: string[] = JSON.parse(rawDeleted);
     if (!deletedIds.includes(targetId)) {
       deletedIds.push(targetId);
-      localStorage.setItem('allUnifiedLinks_deleted', JSON.stringify(deletedIds.slice(-500)));
+      safeSetItem('allUnifiedLinks_deleted', JSON.stringify(deletedIds.slice(-500)));
     }
   } catch (_) {}
 
@@ -1285,13 +1285,13 @@ export const getStudents = async (): Promise<any[]> => {
 
   let deletedIds: string[] = [];
   try {
-    const rawDeleted = localStorage.getItem('students_deleted');
+    const rawDeleted = safeGetItem('students_deleted');
     if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
   } catch (_) {}
 
   let localStudents: any[] = [];
   try {
-    const rawLocal = localStorage.getItem('students');
+    const rawLocal = safeGetItem('students');
     if (rawLocal) {
       localStudents = JSON.parse(rawLocal);
     }
@@ -1330,7 +1330,7 @@ export const getStudents = async (): Promise<any[]> => {
 
   if (cleanList.length > 0) {
     try {
-      localStorage.setItem('students', JSON.stringify(cleanList));
+      safeSetItem('students', JSON.stringify(cleanList));
     } catch (_) {}
     return cleanList;
   }
@@ -1348,16 +1348,16 @@ export const saveStudents = async (students: any) => {
 
   // Remove saved student IDs from deleted tombstone list if they were re-saved or edited
   try {
-    const rawDeleted = localStorage.getItem('students_deleted');
+    const rawDeleted = safeGetItem('students_deleted');
     if (rawDeleted) {
       const deletedIds: string[] = JSON.parse(rawDeleted);
       const savedIds = cleanList.map(s => String(s.id).toLowerCase());
       const cleanedDeleted = deletedIds.filter(d => !savedIds.includes(d.toLowerCase()));
-      localStorage.setItem('students_deleted', JSON.stringify(cleanedDeleted));
+      safeSetItem('students_deleted', JSON.stringify(cleanedDeleted));
     }
 
-    localStorage.setItem('students', JSON.stringify(cleanList));
-    localStorage.setItem('students_lastSavedAt', String(Date.now()));
+    safeSetItem('students', JSON.stringify(cleanList));
+    safeSetItem('students_lastSavedAt', String(Date.now()));
   } catch (e) {
     console.warn("Error caching students locally:", e);
   }
@@ -1401,11 +1401,11 @@ export const deleteStudent = async (id: string | number) => {
 
   // Mark in tombstone so it won't be resurrected from stale local caches
   try {
-    const rawDeleted = localStorage.getItem('students_deleted') || '[]';
+    const rawDeleted = safeGetItem('students_deleted') || '[]';
     const deletedIds: string[] = JSON.parse(rawDeleted);
     if (!deletedIds.includes(targetId)) {
       deletedIds.push(targetId);
-      localStorage.setItem('students_deleted', JSON.stringify(deletedIds.slice(-500)));
+      safeSetItem('students_deleted', JSON.stringify(deletedIds.slice(-500)));
     }
   } catch (_) {}
 
@@ -1419,7 +1419,7 @@ export const deleteStudent = async (id: string | number) => {
   });
 
   try {
-    localStorage.setItem('students', JSON.stringify(updatedStudents));
+    safeSetItem('students', JSON.stringify(updatedStudents));
   } catch (_) {}
 
   window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'students', data: updatedStudents } }));
@@ -1507,13 +1507,13 @@ export const getCourses = async (): Promise<any[]> => {
 
   let deletedIds: string[] = [];
   try {
-    const rawDeleted = localStorage.getItem('courses_deleted');
+    const rawDeleted = safeGetItem('courses_deleted');
     if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
   } catch (_) {}
 
   let localCourses: any[] = [];
   try {
-    const rawLocal = localStorage.getItem('courses');
+    const rawLocal = safeGetItem('courses');
     if (rawLocal) {
       localCourses = JSON.parse(rawLocal);
     }
@@ -1555,7 +1555,7 @@ export const getCourses = async (): Promise<any[]> => {
       return timeB - timeA;
     });
     try {
-      localStorage.setItem('courses', JSON.stringify(combined));
+      safeSetItem('courses', JSON.stringify(combined));
     } catch (_) {}
     return combined;
   }
@@ -1573,16 +1573,16 @@ export const saveCourses = async (courses: any[]) => {
 
   // Remove saved item IDs from deleted tombstone list if they were re-saved
   try {
-    const rawDeleted = localStorage.getItem('courses_deleted');
+    const rawDeleted = safeGetItem('courses_deleted');
     if (rawDeleted) {
       const deletedIds: string[] = JSON.parse(rawDeleted);
       const savedIds = cleanList.map(s => String(s.id));
       const cleanedDeleted = deletedIds.filter(d => !savedIds.includes(d));
-      localStorage.setItem('courses_deleted', JSON.stringify(cleanedDeleted));
+      safeSetItem('courses_deleted', JSON.stringify(cleanedDeleted));
     }
 
-    localStorage.setItem('courses', JSON.stringify(cleanList));
-    localStorage.setItem('courses_lastSavedAt', String(Date.now()));
+    safeSetItem('courses', JSON.stringify(cleanList));
+    safeSetItem('courses_lastSavedAt', String(Date.now()));
   } catch (e) {
     console.warn("Error caching courses locally:", e);
   }
@@ -1623,11 +1623,11 @@ export const deleteCourse = async (id: string) => {
   const targetId = String(id);
   // Mark in tombstone
   try {
-    const rawDeleted = localStorage.getItem('courses_deleted') || '[]';
+    const rawDeleted = safeGetItem('courses_deleted') || '[]';
     const deletedIds: string[] = JSON.parse(rawDeleted);
     if (!deletedIds.includes(targetId)) {
       deletedIds.push(targetId);
-      localStorage.setItem('courses_deleted', JSON.stringify(deletedIds.slice(-200)));
+      safeSetItem('courses_deleted', JSON.stringify(deletedIds.slice(-200)));
     }
   } catch (_) {}
 
@@ -1650,13 +1650,13 @@ export const getCourseMaterials = async (): Promise<any[]> => {
 
   let deletedIds: string[] = [];
   try {
-    const rawDeleted = localStorage.getItem('courseMaterials_deleted');
+    const rawDeleted = safeGetItem('courseMaterials_deleted');
     if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
   } catch (_) {}
 
   let localMaterials: any[] = [];
   try {
-    const rawLocal = localStorage.getItem('courseMaterials');
+    const rawLocal = safeGetItem('courseMaterials');
     if (rawLocal) localMaterials = JSON.parse(rawLocal);
   } catch (_) {}
 
@@ -1703,7 +1703,7 @@ export const getCourseMaterials = async (): Promise<any[]> => {
   });
 
   try {
-    localStorage.setItem('courseMaterials', JSON.stringify(sanitized));
+    safeSetItem('courseMaterials', JSON.stringify(sanitized));
   } catch (_) {}
 
   return sanitized;
@@ -1713,16 +1713,16 @@ export const saveCourseMaterials = async (materials: any) => {
   const cleanList = Array.isArray(materials) ? materials : [];
 
   try {
-    const rawDeleted = localStorage.getItem('courseMaterials_deleted');
+    const rawDeleted = safeGetItem('courseMaterials_deleted');
     if (rawDeleted) {
       const deletedIds: string[] = JSON.parse(rawDeleted);
       const savedIds = cleanList.map(s => String(s.id));
       const cleanedDeleted = deletedIds.filter(d => !savedIds.includes(d));
-      localStorage.setItem('courseMaterials_deleted', JSON.stringify(cleanedDeleted));
+      safeSetItem('courseMaterials_deleted', JSON.stringify(cleanedDeleted));
     }
 
-    localStorage.setItem('courseMaterials', JSON.stringify(cleanList));
-    localStorage.setItem('courseMaterials_lastSavedAt', String(Date.now()));
+    safeSetItem('courseMaterials', JSON.stringify(cleanList));
+    safeSetItem('courseMaterials_lastSavedAt', String(Date.now()));
   } catch (e) {
     console.warn("Error caching courseMaterials locally:", e);
   }
@@ -1760,11 +1760,11 @@ export const saveCourseMaterials = async (materials: any) => {
 export const deleteCourseMaterial = async (id: string | number) => {
   const targetId = String(id);
   try {
-    const rawDeleted = localStorage.getItem('courseMaterials_deleted') || '[]';
+    const rawDeleted = safeGetItem('courseMaterials_deleted') || '[]';
     const deletedIds: string[] = JSON.parse(rawDeleted);
     if (!deletedIds.includes(targetId)) {
       deletedIds.push(targetId);
-      localStorage.setItem('courseMaterials_deleted', JSON.stringify(deletedIds.slice(-300)));
+      safeSetItem('courseMaterials_deleted', JSON.stringify(deletedIds.slice(-300)));
     }
   } catch (_) {}
 
@@ -1785,13 +1785,13 @@ export const getYoutubeLinks = async (): Promise<any[]> => {
 
   let deletedIds: string[] = [];
   try {
-    const rawDeleted = localStorage.getItem('youtubeLinks_deleted');
+    const rawDeleted = safeGetItem('youtubeLinks_deleted');
     if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
   } catch (_) {}
 
   let localLinks: any[] = [];
   try {
-    const rawLocal = localStorage.getItem('youtubeLinks');
+    const rawLocal = safeGetItem('youtubeLinks');
     if (rawLocal) localLinks = JSON.parse(rawLocal);
   } catch (_) {}
 
@@ -1838,7 +1838,7 @@ export const getYoutubeLinks = async (): Promise<any[]> => {
   });
 
   try {
-    localStorage.setItem('youtubeLinks', JSON.stringify(sanitized));
+    safeSetItem('youtubeLinks', JSON.stringify(sanitized));
   } catch (_) {}
 
   return sanitized;
@@ -1866,11 +1866,11 @@ export const addYoutubeLink = async (newLink: any): Promise<any[]> => {
 
   // 2. Clear from deletedIds if present
   try {
-    const rawDeleted = localStorage.getItem('youtubeLinks_deleted');
+    const rawDeleted = safeGetItem('youtubeLinks_deleted');
     if (rawDeleted) {
       const deletedIds: string[] = JSON.parse(rawDeleted);
       const cleaned = deletedIds.filter(d => d !== linkId);
-      localStorage.setItem('youtubeLinks_deleted', JSON.stringify(cleaned));
+      safeSetItem('youtubeLinks_deleted', JSON.stringify(cleaned));
     }
   } catch (_) {}
 
@@ -1888,16 +1888,16 @@ export const saveYoutubeLinks = async (links: any) => {
   const cleanList = Array.isArray(links) ? links : [];
 
   try {
-    const rawDeleted = localStorage.getItem('youtubeLinks_deleted');
+    const rawDeleted = safeGetItem('youtubeLinks_deleted');
     if (rawDeleted) {
       const deletedIds: string[] = JSON.parse(rawDeleted);
       const savedIds = cleanList.map(s => String(s.id));
       const cleanedDeleted = deletedIds.filter(d => !savedIds.includes(d));
-      localStorage.setItem('youtubeLinks_deleted', JSON.stringify(cleanedDeleted));
+      safeSetItem('youtubeLinks_deleted', JSON.stringify(cleanedDeleted));
     }
 
-    localStorage.setItem('youtubeLinks', JSON.stringify(cleanList));
-    localStorage.setItem('youtubeLinks_lastSavedAt', String(Date.now()));
+    safeSetItem('youtubeLinks', JSON.stringify(cleanList));
+    safeSetItem('youtubeLinks_lastSavedAt', String(Date.now()));
   } catch (e) {
     console.warn("Error caching youtubeLinks locally:", e);
   }
@@ -1950,23 +1950,23 @@ export const deleteYoutubeLink = async (id: string | number) => {
 
   // 2. Mark in deleted list
   try {
-    const rawDeleted = localStorage.getItem('youtubeLinks_deleted') || '[]';
+    const rawDeleted = safeGetItem('youtubeLinks_deleted') || '[]';
     const deletedIds: string[] = JSON.parse(rawDeleted);
     if (!deletedIds.includes(targetId)) {
       deletedIds.push(targetId);
-      localStorage.setItem('youtubeLinks_deleted', JSON.stringify(deletedIds.slice(-300)));
+      safeSetItem('youtubeLinks_deleted', JSON.stringify(deletedIds.slice(-300)));
     }
   } catch (_) {}
 
   // 3. Update local cache & dispatch update
   let currentLocal: any[] = [];
   try {
-    const rawLocal = localStorage.getItem('youtubeLinks');
+    const rawLocal = safeGetItem('youtubeLinks');
     if (rawLocal) currentLocal = JSON.parse(rawLocal);
   } catch (_) {}
   const updated = currentLocal.filter(m => String(m.id) !== targetId);
   try {
-    localStorage.setItem('youtubeLinks', JSON.stringify(updated));
+    safeSetItem('youtubeLinks', JSON.stringify(updated));
   } catch (_) {}
   window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'youtubeLinks', data: updated } }));
 
@@ -2096,13 +2096,13 @@ export const getStaffs = async (): Promise<any[]> => {
 
   let deletedIds: string[] = [];
   try {
-    const rawDeleted = localStorage.getItem('staffs_deleted');
+    const rawDeleted = safeGetItem('staffs_deleted');
     if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
   } catch (_) {}
 
   let localStaffs: any[] = [];
   try {
-    const rawLocal = localStorage.getItem('staffs');
+    const rawLocal = safeGetItem('staffs');
     if (rawLocal) {
       localStaffs = JSON.parse(rawLocal);
     }
@@ -2139,7 +2139,7 @@ export const getStaffs = async (): Promise<any[]> => {
 
   if (combined.length > 0) {
     try {
-      localStorage.setItem('staffs', JSON.stringify(combined));
+      safeSetItem('staffs', JSON.stringify(combined));
     } catch (_) {}
     return combined;
   }
@@ -2157,16 +2157,16 @@ export const saveStaffs = async (staffs: any[]) => {
 
   // Remove saved item IDs from deleted tombstone list if they were re-saved
   try {
-    const rawDeleted = localStorage.getItem('staffs_deleted');
+    const rawDeleted = safeGetItem('staffs_deleted');
     if (rawDeleted) {
       const deletedIds: string[] = JSON.parse(rawDeleted);
       const savedIds = cleanList.map(s => String(s.id));
       const cleanedDeleted = deletedIds.filter(d => !savedIds.includes(d));
-      localStorage.setItem('staffs_deleted', JSON.stringify(cleanedDeleted));
+      safeSetItem('staffs_deleted', JSON.stringify(cleanedDeleted));
     }
 
-    localStorage.setItem('staffs', JSON.stringify(cleanList));
-    localStorage.setItem('staffs_lastSavedAt', String(Date.now()));
+    safeSetItem('staffs', JSON.stringify(cleanList));
+    safeSetItem('staffs_lastSavedAt', String(Date.now()));
   } catch (e) {
     console.warn("Error caching staffs locally:", e);
   }
@@ -2207,11 +2207,11 @@ export const deleteStaff = async (id: string | number) => {
   const targetId = String(id);
   // Mark in tombstone
   try {
-    const rawDeleted = localStorage.getItem('staffs_deleted') || '[]';
+    const rawDeleted = safeGetItem('staffs_deleted') || '[]';
     const deletedIds: string[] = JSON.parse(rawDeleted);
     if (!deletedIds.includes(targetId)) {
       deletedIds.push(targetId);
-      localStorage.setItem('staffs_deleted', JSON.stringify(deletedIds.slice(-200)));
+      safeSetItem('staffs_deleted', JSON.stringify(deletedIds.slice(-200)));
     }
   } catch (_) {}
 
@@ -2347,13 +2347,13 @@ export const getDailyWorkUploads = async (): Promise<DailyWorkUpload[]> => {
 
   let deletedIds: string[] = [];
   try {
-    const rawDeleted = localStorage.getItem('dailyWorkUploads_deleted');
+    const rawDeleted = safeGetItem('dailyWorkUploads_deleted');
     if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
   } catch (_) {}
 
   let localUploads: DailyWorkUpload[] = [];
   try {
-    const rawLocal = localStorage.getItem('dailyWorkUploads');
+    const rawLocal = safeGetItem('dailyWorkUploads');
     if (rawLocal) {
       localUploads = JSON.parse(rawLocal);
     }
@@ -2391,7 +2391,7 @@ export const getDailyWorkUploads = async (): Promise<DailyWorkUpload[]> => {
   if (combined.length > 0) {
     combined.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
     try {
-      localStorage.setItem('dailyWorkUploads', JSON.stringify(combined));
+      safeSetItem('dailyWorkUploads', JSON.stringify(combined));
     } catch (_) {}
     return combined;
   }
@@ -2455,16 +2455,16 @@ export const saveDailyWorkUploads = async (uploads: DailyWorkUpload[]) => {
     });
 
     // Remove saved item IDs from deleted tombstone list if they were re-saved
-    const rawDeleted = localStorage.getItem('dailyWorkUploads_deleted');
+    const rawDeleted = safeGetItem('dailyWorkUploads_deleted');
     if (rawDeleted) {
       const deletedIds: string[] = JSON.parse(rawDeleted);
       const savedIds = safeList.map(s => s.id);
       const cleanedDeleted = deletedIds.filter(d => !savedIds.includes(d));
-      localStorage.setItem('dailyWorkUploads_deleted', JSON.stringify(cleanedDeleted));
+      safeSetItem('dailyWorkUploads_deleted', JSON.stringify(cleanedDeleted));
     }
 
-    localStorage.setItem('dailyWorkUploads', JSON.stringify(safeList));
-    localStorage.setItem('dailyWorkUploads_lastSavedAt', String(Date.now()));
+    safeSetItem('dailyWorkUploads', JSON.stringify(safeList));
+    safeSetItem('dailyWorkUploads_lastSavedAt', String(Date.now()));
   } catch (e) {
     console.warn("LocalStorage save warning:", e);
   }
@@ -2513,11 +2513,11 @@ export const saveDailyWorkUploads = async (uploads: DailyWorkUpload[]) => {
 export const deleteDailyWorkUpload = async (id: string) => {
   // Mark in tombstone
   try {
-    const rawDeleted = localStorage.getItem('dailyWorkUploads_deleted') || '[]';
+    const rawDeleted = safeGetItem('dailyWorkUploads_deleted') || '[]';
     const deletedIds: string[] = JSON.parse(rawDeleted);
     if (!deletedIds.includes(id)) {
       deletedIds.push(id);
-      localStorage.setItem('dailyWorkUploads_deleted', JSON.stringify(deletedIds.slice(-200)));
+      safeSetItem('dailyWorkUploads_deleted', JSON.stringify(deletedIds.slice(-200)));
     }
   } catch (_) {}
 
@@ -2541,7 +2541,7 @@ export const deleteDailyWorkUpload = async (id: string) => {
 
 export const getDeletedSubjectsList = (): string[] => {
   try {
-    const raw = localStorage.getItem('subjects_deleted');
+    const raw = safeGetItem('subjects_deleted');
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed.map(s => String(s).trim().toLowerCase()).filter(Boolean);
@@ -2558,7 +2558,7 @@ export const markSubjectDeleted = (idOrName: string) => {
     if (!list.includes(clean)) {
       list.push(clean);
       const capped = list.slice(-500);
-      localStorage.setItem('subjects_deleted', JSON.stringify(capped));
+      safeSetItem('subjects_deleted', JSON.stringify(capped));
       if (isFirebaseConfigured) {
         setDoc(doc(db, 'singletons', 'subjects_deleted'), { data: capped, updatedAt: Date.now() }, { merge: true }).catch(() => {});
       }
@@ -2572,7 +2572,7 @@ export const unmarkSubjectDeleted = (idOrName: string) => {
   try {
     const list = getDeletedSubjectsList();
     const updated = list.filter(item => item !== clean);
-    localStorage.setItem('subjects_deleted', JSON.stringify(updated));
+    safeSetItem('subjects_deleted', JSON.stringify(updated));
     if (isFirebaseConfigured) {
       setDoc(doc(db, 'singletons', 'subjects_deleted'), { data: updated, updatedAt: Date.now() }, { merge: true }).catch(() => {});
     }
@@ -2670,8 +2670,8 @@ export const saveSubjects = async (subjects: any) => {
 
   // Local caching
   try {
-    localStorage.setItem('subjects', JSON.stringify(cleanList));
-    localStorage.setItem('subjects_lastSavedAt', String(Date.now()));
+    safeSetItem('subjects', JSON.stringify(cleanList));
+    safeSetItem('subjects_lastSavedAt', String(Date.now()));
   } catch (e) {
     console.warn("Error caching subjects locally:", e);
   }
@@ -3072,7 +3072,7 @@ const DEFAULT_FORMS: CustomForm[] = [
 export const getFastFormById = (formId: string): CustomForm | null => {
   // Check local storage directly
   try {
-    const raw = localStorage.getItem('forms');
+    const raw = safeGetItem('forms');
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
@@ -3103,7 +3103,7 @@ export const getFormByIdAsync = async (formId: string): Promise<CustomForm | nul
         if (!currentForms.some(f => f.id === formId)) {
           const updated = [data, ...currentForms];
           try {
-            localStorage.setItem('forms', JSON.stringify(updated));
+            safeSetItem('forms', JSON.stringify(updated));
           } catch (e) {}
           saveForms(updated).catch(() => {});
         }
@@ -3154,7 +3154,7 @@ export const getForms = async (): Promise<CustomForm[]> => {
 
   // 3. Fallback: Check if formSubmissions contain any formId (e.g. form_1787409164685) not in list
   try {
-    const rawSubs = localStorage.getItem('formSubmissions');
+    const rawSubs = safeGetItem('formSubmissions');
     const subsToCheck = rawSubs ? JSON.parse(rawSubs) : [];
     if (Array.isArray(subsToCheck)) {
       for (const sub of subsToCheck) {
@@ -3202,7 +3202,7 @@ export const getForms = async (): Promise<CustomForm[]> => {
   }
 
   try {
-    localStorage.setItem('forms', JSON.stringify(list));
+    safeSetItem('forms', JSON.stringify(list));
   } catch (e) {}
 
   return list;
@@ -3458,7 +3458,7 @@ export const getFormSubmissions = async (): Promise<FormSubmission[]> => {
   healed.sort((a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime());
 
   try {
-    localStorage.setItem('formSubmissions', JSON.stringify(healed));
+    safeSetItem('formSubmissions', JSON.stringify(healed));
   } catch (e) {}
 
   if (hasRepairs && isFirebaseConfigured) {
@@ -3506,7 +3506,7 @@ export const deleteFormSubmission = async (submissionId: string): Promise<FormSu
 
   // 2. Clear and rewrite local storage
   try {
-    localStorage.setItem('formSubmissions', JSON.stringify(updated));
+    safeSetItem('formSubmissions', JSON.stringify(updated));
   } catch (e) {}
 
   // 3. Overwrite singletons/formSubmissions in Firestore
@@ -3693,9 +3693,9 @@ export const addNotification = async (notification: { grade: string, title: stri
     const docRef = doc(collection(db, 'notifications'));
     await setDoc(docRef, { ...notification, id: docRef.id });
   } else {
-    const notifications = JSON.parse(localStorage.getItem('notifications') || '[]');
+    const notifications = JSON.parse(safeGetItem('notifications') || '[]');
     notifications.push({ ...notification, id: Date.now().toString() });
-    localStorage.setItem('notifications', JSON.stringify(notifications));
+    safeSetItem('notifications', JSON.stringify(notifications));
   }
 };
 
