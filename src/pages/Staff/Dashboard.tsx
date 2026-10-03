@@ -26,7 +26,7 @@ import WhatsAppIcon from "../../components/WhatsAppIcon";
 import { QRCodeSVG } from "qrcode.react";
 import { toPng } from "html-to-image";
 import { jsPDF } from "jspdf";
-import { getAttendance, getZoomLinks, saveZoomLinks, getHomework, saveHomework, getStaffAttendance, saveStaffAttendance, getTimeTable, saveTimeTable, getStudents, getAdminSettings, getStaffs } from "../../lib/db";
+import { getAttendance, getZoomLinks, saveZoomLinks, deleteZoomLink, formatZoomLinkRemaining, getHomework, saveHomework, getStaffAttendance, saveStaffAttendance, getTimeTable, saveTimeTable, getStudents, getAdminSettings, getStaffs } from "../../lib/db";
 import { getUserSession, saveUserSession, clearUserSession } from "../../lib/authSession";
 import CountdownTimer from "../../components/CountdownTimer";
 import PopupAnnouncement from "../../components/PopupAnnouncement";
@@ -702,13 +702,34 @@ function ZoomManager({ staff }: { staff: any }) {
   const [formData, setFormData] = useState({ grade: "", subject: "", title: "", link: "", datetime: "", hostKey: "", meetingId: "", passcode: "" });
 
   useEffect(() => {
-    getZoomLinks().then(setLinks);
+    const fetchLinks = () => {
+      getZoomLinks().then(data => setLinks(Array.isArray(data) ? data : []));
+    };
+    fetchLinks();
+    const interval = setInterval(fetchLinks, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newLink = { ...formData, id: Date.now().toString(), staffId: staff.id, staffName: staff.name };
-    const updated = [...links, newLink];
+    const nowIso = new Date().toISOString();
+    const scheduledMs = formData.datetime ? new Date(formData.datetime).getTime() : Date.now();
+    const refMs = Math.max(Date.now(), isNaN(scheduledMs) ? Date.now() : scheduledMs);
+    const expiresAt = new Date(refMs + (24 * 60 * 60 * 1000)).toISOString();
+
+    const newLink = { 
+      ...formData, 
+      id: "zoom_" + Date.now().toString(), 
+      staffId: staff.id, 
+      staffName: staff.name,
+      createdAt: nowIso,
+      dateAdded: nowIso,
+      autoDeleteIn24h: true,
+      expiresAt: expiresAt,
+      updatedAt: nowIso
+    };
+    const currentLinks = await getZoomLinks();
+    const updated = [newLink, ...currentLinks.filter(l => l.id !== newLink.id)];
     await saveZoomLinks(updated);
     setLinks(updated);
     setFormData({ grade: "", subject: "", title: "", link: "", datetime: "", hostKey: "", meetingId: "", passcode: "" });
@@ -724,7 +745,14 @@ function ZoomManager({ staff }: { staff: any }) {
       details: `${formData.title} (${formData.grade} - ${formData.subject})`
     }]);
     
-    alert("Zoom link added successfully!");
+    alert("Zoom வகுப்பு வெற்றிகரமாக சேர்க்கப்பட்டது! (24 மணி நேரத்தில் தானாகவே நீக்கப்படும்)");
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm("இந்த Zoom வகுப்பை நீக்க விரும்புகிறீர்களா? (Delete this Zoom class?)")) {
+      const updated = await deleteZoomLink(id);
+      setLinks(updated);
+    }
   };
 
   const handleClassSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -739,7 +767,15 @@ function ZoomManager({ staff }: { staff: any }) {
   return (
     <div className="space-y-6">
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-        <h3 className="text-lg font-bold text-gray-800 mb-4">Add New Zoom Link</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-gray-800">Add New Zoom Link (ஈ-லேர்னிங் நேரலை வகுப்பு)</h3>
+          <span className="text-xs bg-amber-100 text-amber-800 font-bold px-2.5 py-1 rounded-full border border-amber-200">
+            ⏳ 24h Auto-Delete
+          </span>
+        </div>
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900">
+          <strong>குறிப்பு:</strong> நீங்கள் சேர்க்கும் இந்த நேரலை Zoom இணைப்பு வகுப்பு முடிந்த / சேர்க்கப்பட்ட 24 மணி நேரத்திற்குள் தானாகவே மாணவர் தளத்திலிருந்தும் கணினியிலிருந்தும் நீக்கப்படும்.
+        </div>
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <select 
             required 
@@ -766,21 +802,35 @@ function ZoomManager({ staff }: { staff: any }) {
       </div>
       
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-        <h3 className="text-lg font-bold text-gray-800 mb-4">Your Recent Zoom Links</h3>
+        <h3 className="text-lg font-bold text-gray-800 mb-4">Your Recent Zoom Links (Active within 24h)</h3>
         <div className="space-y-3">
+          {links.filter(l => l.staffId === staff.id).length === 0 && (
+            <p className="text-sm text-gray-500 py-4 text-center">No active Zoom links scheduled in the last 24 hours.</p>
+          )}
           {links.filter(l => l.staffId === staff.id).map(link => (
-            <div key={link.id} className="p-4 border rounded-lg flex justify-between items-center">
+            <div key={link.id} className="p-4 border rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <div>
                 <p className="font-bold">{link.title} <span className="text-sm text-gray-500 font-normal">({link.grade} - {link.subject})</span></p>
-                <div className="flex items-center gap-3 mt-1 mb-1">
+                <div className="flex flex-wrap items-center gap-2 mt-1 mb-1">
                   <p className="text-sm text-gray-600">Time: {new Date(link.datetime).toLocaleString()}</p>
                   <CountdownTimer targetDate={link.datetime} />
+                  <span className="text-xs bg-amber-50 text-amber-800 font-semibold px-2 py-0.5 rounded border border-amber-200">
+                    ஆட்டோ டெலீட்: இன்னும் {formatZoomLinkRemaining(link)}
+                  </span>
                 </div>
                 <p className="text-sm text-gray-600">Host Key: <span className="font-mono bg-gray-100 px-1 rounded">{link.hostKey || 'N/A'}</span></p>
                 {link.meetingId && <p className="text-sm text-gray-600">Meeting ID: <span className="font-mono bg-gray-100 px-1 rounded">{link.meetingId}</span></p>}
                 {link.passcode && <p className="text-sm text-gray-600">Passcode: <span className="font-mono bg-gray-100 px-1 rounded">{link.passcode}</span></p>}
               </div>
-              <a href={link.link} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Join</a>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleDelete(link.id)}
+                  className="text-xs text-red-600 hover:text-red-800 px-2 py-1 rounded hover:bg-red-50 transition-colors"
+                >
+                  Delete
+                </button>
+                <a href={link.link} target="_blank" rel="noreferrer" className="text-sm bg-blue-50 text-blue-600 font-medium px-3 py-1.5 rounded hover:bg-blue-100 transition-colors">Join</a>
+              </div>
             </div>
           ))}
         </div>

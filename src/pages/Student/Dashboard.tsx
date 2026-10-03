@@ -55,7 +55,7 @@ import { toPng } from "html-to-image";
 import jsPDF from "jspdf";
 import RecordingSection, { deduplicateCourses, areSubjectsMatching, doesItemMatchGrade, doesItemMatchStudentSubjects, normalizeGradeString, getCanonicalSubjectCategory, filterSubjectsForStudentGrade, isSubjectValidForGrade } from "../../components/RecordingSection";
 
-import { getCourses, getCourseMaterials, getZoomLinks, getYoutubeLinks, getFees, getAttendance, saveAttendance, getClassLinks, getCourseWebsiteLinks, getHomework, getStaffs, getTimeTable, getStudents, saveStudents, getAdminSettings, getClasses, getExamMarks, saveExamMarks, getWebPosts, getStudentMenuLabels, DEFAULT_STUDENT_MENU_LABELS, StudentMenuLabels, getTermExams, getExamSubmissions, saveExamSubmissions } from "../../lib/db";
+import { getCourses, getCourseMaterials, getZoomLinks, isZoomLinkExpired, formatZoomLinkRemaining, getYoutubeLinks, getFees, getAttendance, saveAttendance, getClassLinks, getCourseWebsiteLinks, getHomework, getStaffs, getTimeTable, getStudents, saveStudents, getAdminSettings, getClasses, getExamMarks, saveExamMarks, getWebPosts, getStudentMenuLabels, DEFAULT_STUDENT_MENU_LABELS, StudentMenuLabels, getTermExams, getExamSubmissions, saveExamSubmissions } from "../../lib/db";
 import { formatEmbedUrl } from "../Admin/TermExam";
 import { getUserSession, saveUserSession, clearUserSession } from "../../lib/authSession";
 import CountdownTimer from "../../components/CountdownTimer";
@@ -1970,7 +1970,7 @@ export default function StudentDashboard() {
                   </h3>
                   <div className="space-y-3">
                     {zoomLinks
-                      .filter(z => enrolledClasses.includes(z.subject))
+                      .filter(z => !isZoomLinkExpired(z) && enrolledClasses.includes(z.subject))
                       .sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime())
                       .slice(0, 3) // Show next 3
                       .map(z => (
@@ -1978,9 +1978,14 @@ export default function StudentDashboard() {
                           <div>
                             <p className="font-bold text-slate-800">{z.title}</p>
                             <p className="text-sm font-medium text-indigo-600 mb-1">{z.subject}</p>
-                            <div className="flex items-center gap-2">
-                              <Clock size={14} className="text-slate-400" />
-                              <p className="text-xs text-slate-500">{new Date(z.datetime).toLocaleString()}</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                <Clock size={13} className="text-slate-400" />
+                                <span>{new Date(z.datetime).toLocaleString()}</span>
+                              </div>
+                              <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                24h ஆட்டோ டெலீட்: இன்னும் {formatZoomLinkRemaining(z)}
+                              </span>
                             </div>
                             <div className="mt-2 inline-block">
                               <CountdownTimer targetDate={z.datetime} />
@@ -4650,13 +4655,16 @@ export default function StudentDashboard() {
                   </div>
                 )}
                 
-                {zoomLinks.map(link => (
+                {zoomLinks.filter(link => !isZoomLinkExpired(link)).map(link => (
                   <div key={link.id} className="bg-white p-5 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center border border-slate-200 shadow-sm hover:border-indigo-200 hover:shadow-md transition-all gap-4">
                     <div className="flex flex-col">
                       <span className="font-bold text-slate-800 text-lg truncate mr-2">{link.title}</span>
-                      <div className="flex items-center gap-2 mt-1.5">
+                      <div className="flex flex-wrap items-center gap-2 mt-1.5">
                         <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100">{new Date(link.datetime).toLocaleString()}</span>
                         <CountdownTimer targetDate={link.datetime} />
+                        <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                          ஆட்டோ டெலீட்: இன்னும் {formatZoomLinkRemaining(link)}
+                        </span>
                       </div>
                       <div className="flex flex-wrap gap-3 mt-3">
                         {link.meetingId && <span className="text-xs font-medium text-slate-500 bg-slate-50 px-2 py-1 rounded-md border border-slate-100">Meeting ID: <span className="font-mono font-bold text-slate-700 ml-1">{link.meetingId}</span></span>}

@@ -1447,52 +1447,164 @@ export const deleteStudent = async (id: string | number) => {
   return updatedStudents;
 };
 
-export const isZoomLinkExpired = (link: any, bufferHours = 8): boolean => {
+export const isZoomLinkExpired = (link: any): boolean => {
   if (!link) return false;
 
-  const expiryMs = (bufferHours || 8) * 60 * 60 * 1000;
+  const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+  const now = Date.now();
 
-  // 1. If explicit datetime is provided (e.g. "2026-09-09T10:00:00" or "2026-09-09 10:00")
+  // 1. Explicit expiresAt set on creation
+  if (link.expiresAt) {
+    const exp = new Date(link.expiresAt).getTime();
+    if (!isNaN(exp) && exp > 0) {
+      return now >= exp;
+    }
+  }
+
+  // 2. Class scheduled datetime
+  let classTime = 0;
   if (link.datetime) {
-    const classTime = new Date(link.datetime).getTime();
-    if (!isNaN(classTime)) {
-      // Zoom link stays accessible during class and up to 8 hours after scheduled time
-      const expiry = classTime + expiryMs;
-      return Date.now() > expiry;
+    const dt = new Date(link.datetime).getTime();
+    if (!isNaN(dt) && dt > 0) classTime = dt;
+  }
+
+  // 3. Creation / added timestamp
+  let createdTime = 0;
+  if (link.createdAt) {
+    const ct = new Date(link.createdAt).getTime();
+    if (!isNaN(ct) && ct > 0) createdTime = ct;
+  } else if (link.dateAdded) {
+    const da = new Date(link.dateAdded).getTime();
+    if (!isNaN(da) && da > 0) createdTime = da;
+  } else if (link.id) {
+    const numPart = String(link.id).replace(/[^0-9]/g, '');
+    if (numPart.length >= 10) {
+      const parsedId = Number(numPart.slice(0, 13));
+      if (!isNaN(parsedId) && parsedId > 1600000000000 && parsedId < 2500000000000) {
+        createdTime = parsedId;
+      }
     }
   }
 
-  // 2. If date + endTime or startTime is provided
-  if (link.date) {
-    const timeStr = link.endTime || link.startTime || "23:59";
-    const combinedStr = `${link.date}T${timeStr.length === 5 ? timeStr : timeStr.padStart(5, '0')}`;
-    const classTime = new Date(combinedStr).getTime();
-    if (!isNaN(classTime)) {
-      const expiry = classTime + expiryMs;
-      return Date.now() > expiry;
+  // If neither time is available, do not delete
+  if (!classTime && !createdTime) {
+    return false;
+  }
+
+  // Live class zoom link expires 24 hours after class time or 24 hours after creation, whichever is later
+  const referenceTime = Math.max(classTime, createdTime);
+  return now >= (referenceTime + TWENTY_FOUR_HOURS_MS);
+};
+
+export const getZoomLinkRemainingMs = (link: any): number => {
+  if (!link) return 0;
+  const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  if (link.expiresAt) {
+    const exp = new Date(link.expiresAt).getTime();
+    if (!isNaN(exp) && exp > 0) return Math.max(0, exp - now);
+  }
+
+  let classTime = 0;
+  if (link.datetime) {
+    const dt = new Date(link.datetime).getTime();
+    if (!isNaN(dt) && dt > 0) classTime = dt;
+  }
+
+  let createdTime = 0;
+  if (link.createdAt) {
+    const ct = new Date(link.createdAt).getTime();
+    if (!isNaN(ct) && ct > 0) createdTime = ct;
+  } else if (link.dateAdded) {
+    const da = new Date(link.dateAdded).getTime();
+    if (!isNaN(da) && da > 0) createdTime = da;
+  } else if (link.id) {
+    const numPart = String(link.id).replace(/[^0-9]/g, '');
+    if (numPart.length >= 10) {
+      const parsedId = Number(numPart.slice(0, 13));
+      if (!isNaN(parsedId) && parsedId > 1600000000000 && parsedId < 2500000000000) {
+        createdTime = parsedId;
+      }
     }
   }
 
-  // 3. Fallback to creation or updated time: expires strictly 8 hours after it was created/posted
-  const createdTime = new Date(link.dateAdded || link.createdAt || link.updatedAt || 0).getTime();
-  if (!isNaN(createdTime) && createdTime > 0) {
-    return Date.now() > (createdTime + expiryMs);
-  }
+  const referenceTime = Math.max(classTime, createdTime);
+  if (!referenceTime) return TWENTY_FOUR_HOURS_MS;
+  const expiry = referenceTime + TWENTY_FOUR_HOURS_MS;
+  return Math.max(0, expiry - now);
+};
 
-  return false;
+export const formatZoomLinkRemaining = (linkOrMs: any): string => {
+  const ms = typeof linkOrMs === 'number' ? linkOrMs : getZoomLinkRemainingMs(linkOrMs);
+  if (ms <= 0) return "முடிந்தது (Expired)";
+  const totalMinutes = Math.floor(ms / (1000 * 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) {
+    return `${hours} மணி ${minutes} நிமிடம் (${hours}h ${minutes}m)`;
+  }
+  return `${minutes} நிமிடம் (${minutes}m)`;
+};
+
+export const purgeExpiredZoomLinks = async (): Promise<any[]> => {
+  try {
+    const rawLinks = await getData('zoomLinks', []);
+    if (!Array.isArray(rawLinks) || rawLinks.length === 0) return [];
+
+    const activeLinks: any[] = [];
+    const expiredLinks: any[] = [];
+
+    for (const link of rawLinks) {
+      if (link && isZoomLinkExpired(link)) {
+        expiredLinks.push(link);
+      } else if (link) {
+        activeLinks.push(link);
+      }
+    }
+
+    if (expiredLinks.length > 0) {
+      console.log(`[Zoom Auto-Delete] Purging ${expiredLinks.length} expired E-Learning live class zoom links (>24 hours).`);
+      await saveZoomLinks(activeLinks);
+      if (isFirebaseConfigured) {
+        for (const exp of expiredLinks) {
+          if (exp?.id) {
+            try {
+              await deleteDoc(doc(db, 'zoomLinks', String(exp.id)));
+            } catch (_) {}
+          }
+        }
+      }
+    }
+
+    return activeLinks;
+  } catch (err) {
+    console.warn("Error purging expired zoom links:", err);
+    return [];
+  }
 };
 
 export const getZoomLinks = async () => {
   const rawLinks = await getData('zoomLinks', []);
   const links = Array.isArray(rawLinks) ? rawLinks : [];
-  return links;
+  
+  // Filter out any link older than 24 hours
+  const activeLinks = links.filter(l => !isZoomLinkExpired(l));
+  
+  // Asynchronously purge expired links from cloud & cache if any expired link found
+  if (activeLinks.length !== links.length) {
+    purgeExpiredZoomLinks().catch(() => {});
+  }
+  
+  return activeLinks;
 };
 export const saveZoomLinks = (links: any) => saveData('zoomLinks', Array.isArray(links) ? links : []);
 
 export const deleteZoomLink = async (id: string | number) => {
   const targetId = String(id);
-  const current = await getZoomLinks();
-  const updated = current.filter(l => String(l.id) !== targetId);
+  const current = await getData('zoomLinks', []);
+  const currentArray = Array.isArray(current) ? current : [];
+  const updated = currentArray.filter(l => String(l.id) !== targetId);
   await saveZoomLinks(updated);
   if (isFirebaseConfigured) {
     try {

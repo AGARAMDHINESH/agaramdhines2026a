@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { getZoomLinks, saveZoomLinks, getSubjects, getClasses, addNotification } from '../../lib/db';
-import { Video, PlayCircle, Trash2, ArrowLeft, Plus, ExternalLink, BookOpen, Calendar, Clock, Key } from 'lucide-react';
+import { getZoomLinks, saveZoomLinks, deleteZoomLink, formatZoomLinkRemaining, purgeExpiredZoomLinks, getSubjects, getClasses, addNotification } from '../../lib/db';
+import { Video, PlayCircle, Trash2, ArrowLeft, Plus, ExternalLink, BookOpen, Calendar, Clock, Key, ShieldCheck } from 'lucide-react';
 import CountdownTimer from '../../components/CountdownTimer';
 
 export default function LiveClasses() {
@@ -20,15 +20,22 @@ export default function LiveClasses() {
   });
 
   useEffect(() => {
-    getZoomLinks().then(data => {
-      if (Array.isArray(data)) {
-        setLinks(data);
-      } else {
-        setLinks([]);
-      }
-    });
+    const fetchAll = () => {
+      getZoomLinks().then(data => {
+        if (Array.isArray(data)) {
+          setLinks(data);
+        } else {
+          setLinks([]);
+        }
+      });
+    };
+    fetchAll();
     getSubjects().then(data => setSubjects(data || []));
     getClasses().then(data => setClasses(data || []));
+
+    // Periodic auto-check every 30 seconds to clean up expired links (>24 hours)
+    const interval = setInterval(fetchAll, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const GRADES = [
@@ -55,6 +62,11 @@ export default function LiveClasses() {
 
     setIsSaving(true);
     try {
+      const nowIso = new Date().toISOString();
+      const scheduledMs = formData.datetime ? new Date(formData.datetime).getTime() : Date.now();
+      const refMs = Math.max(Date.now(), isNaN(scheduledMs) ? Date.now() : scheduledMs);
+      const expiresAt = new Date(refMs + (24 * 60 * 60 * 1000)).toISOString();
+
       const newLink = { 
         id: "zoom_" + Date.now().toString(), 
         grade: selectedGrade,
@@ -65,8 +77,11 @@ export default function LiveClasses() {
         hostKey: formData.hostKey.trim(),
         meetingId: formData.meetingId.trim(),
         passcode: formData.passcode.trim(),
-        dateAdded: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        createdAt: nowIso,
+        dateAdded: nowIso,
+        autoDeleteIn24h: true,
+        expiresAt: expiresAt,
+        updatedAt: nowIso
       };
       
       const currentLinks = await getZoomLinks();
@@ -79,15 +94,15 @@ export default function LiveClasses() {
         await addNotification({
           grade: selectedGrade,
           title: "புதிய Zoom வகுப்பு!",
-          message: `${formData.subject}: ${formData.title} வகுப்பு நேரலைக்காக சேர்க்கப்பட்டுள்ளது.`,
+          message: `${formData.subject}: ${formData.title} வகுப்பு நேரலைக்காக சேர்க்கப்பட்டுள்ளது. (24 மணி நேரத்தில் நீக்கப்படும்)`,
           type: 'zoom_class',
           createdAt: new Date().toISOString()
         });
       }
       
       setFormData({ subject: '', title: '', link: '', datetime: '', hostKey: '', meetingId: '', passcode: '' });
-      setSaveSuccessMsg("Zoom இணைப்பு டேட்டாபேஸ் மற்றும் கணினியில் வெற்றிகரமாக சேமிக்கப்பட்டது!");
-      setTimeout(() => setSaveSuccessMsg(null), 3500);
+      setSaveSuccessMsg("Zoom இணைப்பு வெற்றிகரமாக சேர்க்கப்பட்டது! 24 மணி நேரத்தில் தானாகவே நீக்கப்படும்.");
+      setTimeout(() => setSaveSuccessMsg(null), 4000);
     } catch (err: any) {
       alert("Zoom இணைப்பை சேமிப்பதில் பிழை: " + err?.message);
     } finally {
@@ -96,10 +111,9 @@ export default function LiveClasses() {
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this Zoom link?")) {
-      const updatedLinks = links.filter(l => l.id !== id);
+    if (window.confirm("இந்த Zoom வகுப்பை நீக்க விரும்புகிறீர்களா? (Are you sure you want to delete this Zoom link?)")) {
+      const updatedLinks = await deleteZoomLink(id);
       setLinks(updatedLinks);
-      await saveZoomLinks(updatedLinks);
     }
   };
 
@@ -125,7 +139,7 @@ export default function LiveClasses() {
     return (
       <div className="max-w-6xl mx-auto p-4 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100 gap-4">
           <div className="flex items-center gap-4">
             <button 
               onClick={() => setSelectedGrade(null)}
@@ -134,13 +148,18 @@ export default function LiveClasses() {
               <ArrowLeft size={20} className="text-gray-600" />
             </button>
             <div>
-              <h2 className="text-xl font-bold text-gray-800">{selectedGrade} - Live Classes</h2>
-              <p className="text-sm text-gray-500">Manage Zoom links for this class</p>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-bold text-gray-800">{selectedGrade} - Live Classes</h2>
+                <span className="bg-amber-100 text-amber-800 text-[11px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-amber-200">
+                  <Clock size={12} /> 24h Auto-Delete
+                </span>
+              </div>
+              <p className="text-sm text-gray-500">ஈ-லேர்னிங் நேரலை Zoom இணைப்புகள் 24 மணி நேரத்தில் தானாகவே நீக்கப்படும்</p>
             </div>
           </div>
           <div className="bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-medium flex items-center gap-2">
             <Video size={20} />
-            {gradeLinks.length} Classes
+            {gradeLinks.length} Active Classes
           </div>
         </div>
 
@@ -230,6 +249,18 @@ export default function LiveClasses() {
                     className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow" 
                   />
                 </div>
+
+                {/* 24-Hour Auto-Delete Info Card */}
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-start gap-2">
+                  <Clock size={16} className="text-amber-600 mt-0.5 shrink-0" />
+                  <div>
+                    <span className="font-bold">⏳ 24 மணி நேரத் தானியங்கி நீக்கம்:</span>
+                    <p className="mt-0.5 text-amber-800 leading-relaxed">
+                      இந்த ஈ-லேர்னிங் Live Zoom இணைப்பு சேர்க்கப்பட்ட / வகுப்பு முடிந்த <strong>24 மணி நேரத்தில்</strong> மாணவர் தளம் மற்றும் கணினியிலிருந்து தானாகவே நிரந்தரமாக நீக்கப்படும்.
+                    </p>
+                  </div>
+                </div>
+
                 {saveSuccessMsg && (
                   <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-sm flex items-center gap-2">
                     <span>✓</span>
@@ -242,7 +273,7 @@ export default function LiveClasses() {
                   className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   <Video size={18} />
-                  {isSaving ? "டேட்டாபேஸில் சேமிக்கப்படுகிறது (Saving to DB)..." : "Save Zoom Link (சேமிக்கவும்)"}
+                  {isSaving ? "டேட்டாபேஸில் சேமிக்கப்படுகிறது..." : "Save Zoom Link (சேமிக்கவும்)"}
                 </button>
               </form>
             </div>
@@ -278,7 +309,13 @@ export default function LiveClasses() {
                           </button>
                         </div>
                         
-                        <h4 className="font-bold text-gray-900 text-lg mb-4 line-clamp-2" title={link.title}>{link.title}</h4>
+                        <h4 className="font-bold text-gray-900 text-lg mb-3 line-clamp-2" title={link.title}>{link.title}</h4>
+
+                        {/* 24-Hour Expiry Pill */}
+                        <div className="mb-4 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-amber-50 text-amber-800 border border-amber-200">
+                          <Clock size={13} className="text-amber-600 shrink-0" />
+                          <span>ஆட்டோ டெலீட்: இன்னும் {formatZoomLinkRemaining(link)}</span>
+                        </div>
                         
                         <div className="space-y-2 mb-5">
                           <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -339,13 +376,36 @@ export default function LiveClasses() {
               <Video size={48} className="text-blue-600" />
             </div>
             <div>
-              <h1 className="text-3xl md:text-4xl font-bold mb-2">Live Classes</h1>
+              <div className="flex items-center gap-3 mb-2 flex-wrap">
+                <h1 className="text-3xl md:text-4xl font-bold">Live Classes</h1>
+                <span className="bg-amber-400/90 text-amber-950 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5 shadow-sm">
+                  <Clock size={14} /> 24 மணி நேர ஆட்டோ டெலீட் (Auto-Delete)
+                </span>
+              </div>
               <p className="text-blue-100 text-lg mb-4">Manage Zoom Meetings & Virtual Classrooms</p>
               <div className="flex items-center gap-4 text-sm font-medium">
                 <span className="bg-black/20 px-3 py-1.5 rounded-full backdrop-blur-sm">Interactive Learning</span>
                 <span className="bg-black/20 px-3 py-1.5 rounded-full backdrop-blur-sm">All Grades</span>
+                <span className="bg-emerald-500/30 text-emerald-200 border border-emerald-400/30 px-3 py-1.5 rounded-full backdrop-blur-sm flex items-center gap-1.5">
+                  <ShieldCheck size={14} /> 24h Auto-Purge Active
+                </span>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Notice Banner */}
+      <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl text-amber-900 text-sm flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-amber-200/70 text-amber-800 flex items-center justify-center shrink-0">
+            <Clock size={18} />
+          </div>
+          <div>
+            <span className="font-bold">ஈ-லேர்னிங் நேரலை வகுப்புகள் பாதுகாப்பு விதி:</span>
+            <p className="text-xs text-amber-800 mt-0.5">
+              நீங்கள் சேர்க்கும் ஈ-லேர்னிங் Live Zoom இணைப்புகள் அனைத்தும் 24 மணி நேரத்தில் தானாகவே கணினியிலிருந்தும் மாணவர் போர்ட்டலிலிருந்தும் நிரந்தரமாக நீக்கப்பட்டுவிடும்.
+            </p>
           </div>
         </div>
       </div>

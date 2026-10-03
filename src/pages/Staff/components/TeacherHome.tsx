@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { 
   getZoomLinks, 
+  formatZoomLinkRemaining,
   getTimeTable, 
   getHomework, 
   getAttendance, 
@@ -288,11 +289,14 @@ export default function TeacherHome({ staff, adminSettings, onNavigateTab }: Tea
                     <p className="text-xs text-gray-600 mt-0.5">
                       <span className="font-bold text-blue-700">{z.grade}</span> • {z.subject}
                     </p>
-                    <div className="flex items-center gap-2 mt-2">
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
                       <span className="text-[11px] text-gray-500 font-medium">
                         {new Date(z.datetime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                       </span>
                       <CountdownTimer targetDate={z.datetime} />
+                      <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                        24h ஆட்டோ டெலீட்: இன்னும் {formatZoomLinkRemaining(z)}
+                      </span>
                     </div>
                   </div>
 
