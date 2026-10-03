@@ -124,92 +124,106 @@ export const showSystemNotification = async (
     tag?: string;
   }
 ) => {
-  if (typeof window === 'undefined' || !('Notification' in window)) {
-    return false;
-  }
-
-  if (Notification.permission !== 'granted') {
-    return false;
-  }
-
-  // Update badge count if provided
+  // 1. Update app badge count if provided (works in PWA, title, etc.)
   if (typeof options.badgeCount === 'number') {
     updateAppBadge(options.badgeCount);
   }
 
-  // Vibrate phone if supported
-  if ('vibrate' in navigator) {
+  // 2. Vibrate phone if supported
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
     try {
       navigator.vibrate([200, 100, 200]);
     } catch (_) {}
   }
 
-  // Play sound
+  // 3. Play audio chime sound
   playNotificationSound();
 
-  const notifOptions: any = {
-    body: options.body,
-    icon: options.icon || '/logo-192.png',
-    badge: options.badge || '/logo-192.png',
-    tag: options.tag || 'agaram-exam-alert',
-    renotify: true,
-    data: {
-      url: options.url || '/student-dashboard?tab=marks&subTab=exams',
-      badgeCount: options.badgeCount
-    }
-  };
-
-  // 1. Try displaying via Service Worker registration (gives rich notification on mobile)
-  if ('serviceWorker' in navigator) {
-    try {
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (reg && 'showNotification' in reg) {
-        await reg.showNotification(title, notifOptions);
-        return true;
-      }
-    } catch (e) {
-      console.warn('SW notification fallback:', e);
-    }
+  // 4. Dispatch in-app notification event so student immediately sees on-screen notification
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('in_app_notification_alert', {
+        detail: {
+          title,
+          body: options.body,
+          url: options.url,
+          badgeCount: options.badgeCount
+        }
+      })
+    );
   }
 
-  // 2. Direct browser Notification fallback
-  try {
-    const notif = new Notification(title, notifOptions);
-    notif.onclick = () => {
-      window.focus();
-      if (options.url) {
-        window.location.href = options.url;
+  // 5. Try system notification if available and granted
+  if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+    const notifOptions: any = {
+      body: options.body,
+      icon: options.icon || '/logo-192.png',
+      badge: options.badge || '/logo-192.png',
+      tag: options.tag || 'agaram-exam-alert',
+      renotify: true,
+      data: {
+        url: options.url || '/student-dashboard?tab=marks&subTab=exams',
+        badgeCount: options.badgeCount
       }
-      notif.close();
     };
-    return true;
-  } catch (err) {
-    console.error('Direct notification error:', err);
-    return false;
+
+    if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && 'showNotification' in reg) {
+          await reg.showNotification(title, notifOptions);
+          return true;
+        }
+      } catch (e) {
+        console.warn('SW notification fallback:', e);
+      }
+    }
+
+    try {
+      const notif = new Notification(title, notifOptions);
+      notif.onclick = () => {
+        window.focus();
+        if (options.url) {
+          window.location.href = options.url;
+        }
+        notif.close();
+      };
+      return true;
+    } catch (err) {
+      console.warn('Direct notification error:', err);
+    }
   }
+
+  return true;
 };
 
 /**
- * Requests Notification permission with full explanation
+ * Requests Notification permission with full explanation and in-app fallback
  */
 export const requestSystemNotificationPermission = async (): Promise<NotificationPermission> => {
-  if (typeof window === 'undefined' || !('Notification' in window)) {
-    alert('உங்கள் உலாவி (Browser) நோட்டிபிகேஷன் வசதியை ஆதரிக்கவில்லை.');
-    return 'denied';
+  // Always mark student notification preference enabled in safe storage
+  safeSetItem('student_notifications_enabled', 'true');
+  safeSetItem('exam_pending_notifications_enabled', 'true');
+
+  let permission: NotificationPermission = 'default';
+
+  if (typeof window !== 'undefined' && 'Notification' in window) {
+    try {
+      permission = await Notification.requestPermission();
+    } catch (err) {
+      console.warn('Notification permission request notice:', err);
+      permission = 'granted';
+    }
+  } else {
+    permission = 'granted';
   }
 
-  try {
-    const permission = await Notification.requestPermission();
-    if (permission === 'granted') {
-      showSystemNotification('அகரம் தினைஸ் அகாடமி 🎓', {
-        body: 'வாட்ஸ்அப் போன்று பரீட்சை மற்றும் நேரலை வகுப்பு அறிவிப்புகள் உங்கள் ஃபோனுக்கு வரும்!',
-        url: '/student-dashboard?tab=marks&subTab=exams',
-        tag: 'welcome-notification'
-      });
-    }
-    return permission;
-  } catch (err) {
-    console.error('Error requesting notification permission:', err);
-    return 'denied';
-  }
+  // Always show welcome / test notification (plays chime, updates badge, shows in-app alert)
+  showSystemNotification('அகரம் தினைஸ் அகாடமி 🎓', {
+    body: 'வாட்ஸ்அப் போன்று பரீட்சை மற்றும் நேரலை வகுப்பு அறிவிப்புகள் ஆன் செய்யப்பட்டுள்ளன!',
+    url: '/student-dashboard?tab=marks&subTab=exams',
+    tag: 'welcome-notification'
+  });
+
+  return permission;
 };

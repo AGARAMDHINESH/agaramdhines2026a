@@ -328,8 +328,34 @@ export default function StudentDashboard() {
     return parseInt(localStorage.getItem(`app_badge_count_${studentData?.grade}`) || "0");
   });
   const [unattendedExamsCount, setUnattendedExamsCount] = useState<number>(0);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() => {
+    return (typeof window !== 'undefined' && 'Notification' in window) ? Notification.permission : 'default';
+  });
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => {
+    return safeGetItem('student_notifications_enabled') === 'true' || 
+           (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted');
+  });
+  const [bannerDismissed, setBannerDismissed] = useState<boolean>(() => {
+    return safeGetItem('student_notif_banner_dismissed') === 'true';
+  });
+  const [examNotifsEnabled, setExamNotifsEnabled] = useState<boolean>(() => {
+    return safeGetItem('exam_pending_notifications_enabled') === 'true' ||
+           safeGetItem('student_notifications_enabled') === 'true';
+  });
+  const [notificationToastMsg, setNotificationToastMsg] = useState<string | null>(null);
   const [menuLabels, setMenuLabels] = useState<StudentMenuLabels>(DEFAULT_STUDENT_MENU_LABELS);
+
+  // Listen for in-app alert broadcasts so user sees instant on-screen feedback
+  useEffect(() => {
+    const handleInAppAlert = (e: any) => {
+      if (e.detail?.body) {
+        setNotificationToastMsg(`${e.detail.title || 'அகரம் தினைஸ் அகாடமி'}: ${e.detail.body}`);
+        setTimeout(() => setNotificationToastMsg(null), 6000);
+      }
+    };
+    window.addEventListener('in_app_notification_alert', handleInAppAlert);
+    return () => window.removeEventListener('in_app_notification_alert', handleInAppAlert);
+  }, []);
 
   // Synchronize unattended exams and App Icon badge count
   useEffect(() => {
@@ -1742,9 +1768,9 @@ export default function StudentDashboard() {
         )}
 
         {/* Phone Notification & App Badge Enable Banner */}
-        {notificationPermission !== 'granted' && (
-          <div className="mb-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-4 rounded-2xl shadow-lg border border-amber-400/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3.5">
+        {!bannerDismissed && !notificationsEnabled && notificationPermission !== 'granted' && (
+          <div className="mb-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-4 rounded-2xl shadow-lg border border-amber-400/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative">
+            <div className="flex items-center gap-3.5 pr-8 sm:pr-0">
               <div className="w-11 h-11 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
                 <Bell size={22} className="animate-bounce" />
               </div>
@@ -1763,11 +1789,28 @@ export default function StudentDashboard() {
                 onClick={async () => {
                   const perm = await requestSystemNotificationPermission();
                   setNotificationPermission(perm);
+                  setNotificationsEnabled(true);
+                  setExamNotifsEnabled(true);
+                  safeSetItem('student_notifications_enabled', 'true');
+                  safeSetItem('exam_pending_notifications_enabled', 'true');
+                  setNotificationToastMsg('✅ நோட்டிபிகேஷன் & பேட்ஜ் வெற்றிகரமாக ஆன் செய்யப்பட்டது!');
+                  setTimeout(() => setNotificationToastMsg(null), 4000);
                 }}
                 className="px-4 py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95"
               >
                 <Bell size={15} />
                 நோட்டிபிகேஷன் ஆன் செய் (Allow)
+              </button>
+              <button
+                onClick={() => {
+                  setBannerDismissed(true);
+                  safeSetItem('student_notif_banner_dismissed', 'true');
+                }}
+                className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
+                title="இந்த நோட்டிபிகேஷனை மூடு (Close)"
+                aria-label="Close Notification Banner"
+              >
+                <X size={18} />
               </button>
             </div>
           </div>
@@ -3820,25 +3863,60 @@ export default function StudentDashboard() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-                    <button
-                      onClick={async () => {
-                        if (notificationPermission !== 'granted') {
+                  <div className="flex items-center gap-2 self-end sm:self-auto shrink-0 flex-wrap">
+                    {examNotifsEnabled ? (
+                      <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl shadow-xs">
+                        <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-700">
+                          <CheckCircle2 size={15} className="text-emerald-600" />
+                          நோட்டிபிகேஷன் ஆன் (Active)
+                        </span>
+                        <button
+                          onClick={() => {
+                            showSystemNotification('அகரம் தினைஸ் அகாடமி 🎓', {
+                              body: `🔔 சோதனை அறிவித்தல்: தற்போது ${unattendedExamsCount} பரீட்சை எழுதப்படவுள்ளது!`,
+                              badgeCount: unattendedExamsCount || 1,
+                              url: '/student-dashboard?tab=marks&subTab=exams'
+                            });
+                            setNotificationToastMsg(`🔔 சோதனை அறிவித்தல் அனுப்பப்பட்டது! (${unattendedExamsCount} பரீட்சைகள்)`);
+                            setTimeout(() => setNotificationToastMsg(null), 4000);
+                          }}
+                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-lg transition-colors cursor-pointer shadow-xs active:scale-95 flex items-center gap-1"
+                          title="நோட்டிபிகேஷன் சோதிக்க"
+                        >
+                          <Bell size={12} />
+                          சோதி (Test)
+                        </button>
+                        <button
+                          onClick={() => {
+                            setExamNotifsEnabled(false);
+                            safeSetItem('exam_pending_notifications_enabled', 'false');
+                            setNotificationToastMsg('எழுதப்படாத பரீட்சைகள் நோட்டிபிகேஷன் ஆஃப் செய்யப்பட்டது.');
+                            setTimeout(() => setNotificationToastMsg(null), 3000);
+                          }}
+                          className="text-[11px] text-slate-400 hover:text-rose-600 underline ml-1 cursor-pointer"
+                          title="நோட்டிபிகேஷன் ஆஃப் செய்"
+                        >
+                          ஆஃப்
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={async () => {
                           const perm = await requestSystemNotificationPermission();
                           setNotificationPermission(perm);
-                        } else {
-                          showSystemNotification('அகரம் தினைஸ் அகாடமி 🎓', {
-                            body: `🔔 சோதனை அறிவித்தல்: தற்போது ${unattendedExamsCount} பரீட்சை எழுதப்படவுள்ளது!`,
-                            badgeCount: unattendedExamsCount || 1,
-                            url: '/student-dashboard?tab=marks&subTab=exams'
-                          });
-                        }
-                      }}
-                      className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
-                    >
-                      <Bell size={14} className="text-amber-500" />
-                      {notificationPermission === 'granted' ? 'நோட்டிபிகேஷன் சோதி (Test)' : 'நோட்டிபிகேஷன் ஆன் செய்'}
-                    </button>
+                          setExamNotifsEnabled(true);
+                          setNotificationsEnabled(true);
+                          safeSetItem('exam_pending_notifications_enabled', 'true');
+                          safeSetItem('student_notifications_enabled', 'true');
+                          setNotificationToastMsg('✅ எழுதப்படாத பரீட்சைகள் நோட்டிபிகேஷன் வெற்றிகரமாக ஆன் செய்யப்பட்டது!');
+                          setTimeout(() => setNotificationToastMsg(null), 4000);
+                        }}
+                        className="px-3.5 py-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95 animate-pulse hover:animate-none"
+                      >
+                        <Bell size={14} className="text-slate-950" />
+                        நோட்டிபிகேஷன் ஆன் செய் (Allow)
+                      </button>
+                    )}
                   </div>
                 </div>
                 {(() => {
@@ -5554,6 +5632,22 @@ export default function StudentDashboard() {
           </div>
         )}
       </AnimatePresence>
+      {/* Floating In-App Notification Toast */}
+      {notificationToastMsg && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900/95 backdrop-blur-md text-white px-5 py-3.5 rounded-2xl shadow-2xl border border-amber-400/40 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-5 duration-300 max-w-md">
+          <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+            <Bell size={16} />
+          </div>
+          <span className="text-xs font-semibold leading-relaxed flex-1">{notificationToastMsg}</span>
+          <button
+            onClick={() => setNotificationToastMsg(null)}
+            className="text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer"
+            aria-label="Dismiss toast"
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
