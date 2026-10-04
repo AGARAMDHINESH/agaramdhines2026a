@@ -80,6 +80,11 @@ export default function AdminForms() {
   const [enrollingSubmission, setEnrollingSubmission] = useState<FormSubmission | null>(null);
   const [createdFormSuccessModal, setCreatedFormSuccessModal] = useState<CustomForm | null>(null);
 
+  // Dedicated Form Responses Portal State (View submissions directly inside each form)
+  const [selectedFormForResponses, setSelectedFormForResponses] = useState<CustomForm | null>(null);
+  const [formSearchQuery, setFormSearchQuery] = useState<string>('');
+  const [formDistrictFilter, setFormDistrictFilter] = useState<string>('all');
+
   // Create/Edit Form State
   const [formTitle, setFormTitle] = useState('');
   const [formDescription, setFormDescription] = useState('');
@@ -267,10 +272,12 @@ export default function AdminForms() {
   };
 
   // Clear All Submissions (or for Selected Form)
-  const handleClearAllSubmissions = async () => {
-    const isFormSpecific = selectedFormFilter !== 'all';
+  const handleClearAllSubmissions = async (specificFormId?: string) => {
+    const targetId = specificFormId || selectedFormFilter;
+    const isFormSpecific = targetId && targetId !== 'all';
+    const formTitle = forms.find(f => f.id === targetId)?.title;
     const msg = isFormSpecific
-      ? "இந்த குறிப்பிட்ட படிவத்தின் அனைத்து சமர்ப்பிப்புகளையும் டேட்டாபேஸ் மற்றும் கேச்சிலிருந்து நிரந்தரமாக நீக்க வேண்டுமா?"
+      ? `"${formTitle || 'இந்த குறிப்பிட்ட படிவத்தின்'}" அனைத்து சமர்ப்பிப்புகளையும் டேட்டாபேஸ் மற்றும் கேச்சிலிருந்து நிரந்தரமாக நீக்க வேண்டுமா?`
       : "அனைத்துப் படிவங்களின் அனைத்து சமர்ப்பிப்புகளையும் டேட்டாபேஸ் மற்றும் கேச்சிலிருந்து நிரந்தரமாக நீக்க வேண்டுமா?";
     
     if (!window.confirm(msg)) {
@@ -278,9 +285,9 @@ export default function AdminForms() {
     }
 
     try {
-      const remaining = await deleteAllFormSubmissions(selectedFormFilter);
+      const remaining = await deleteAllFormSubmissions(targetId);
       setSubmissions(remaining);
-      alert("அனைத்து சமர்ப்பிப்புகளும் நிரந்தரமாக அழிக்கப்பட்டன.");
+      alert("சமர்ப்பிப்புகள் நிரந்தரமாக அழிக்கப்பட்டன.");
     } catch (err: any) {
       alert("பிழை: " + err?.message);
     }
@@ -311,6 +318,9 @@ export default function AdminForms() {
     const updatedList = forms.map(f => f.id === formItem.id ? { ...f, status: updatedStatus, updatedAt: new Date().toISOString() } : f);
     await saveForms(updatedList);
     setForms(updatedList);
+    if (selectedFormForResponses?.id === formItem.id) {
+      setSelectedFormForResponses({ ...selectedFormForResponses, status: updatedStatus });
+    }
   };
 
   // Helper to extract clean display values for any submission (past or new)
@@ -577,14 +587,52 @@ export default function AdminForms() {
     });
   }, [submissions, forms, selectedFormFilter, selectedDistrictFilter, searchQuery]);
 
+  // Filtered submissions for specific Form Responses Portal Modal
+  const selectedFormSubmissions = useMemo(() => {
+    if (!selectedFormForResponses) return [];
+    return submissions.filter(sub => {
+      if (sub.formId !== selectedFormForResponses.id) return false;
+      const disp = getSubmissionDisplay(sub);
+      if (formDistrictFilter !== 'all') {
+        const subDist = (disp.district || '').toLowerCase();
+        const selDist = formDistrictFilter.toLowerCase();
+        if (!subDist.includes(selDist) && !selDist.includes(subDist)) return false;
+      }
+      if (formSearchQuery.trim()) {
+        const q = formSearchQuery.toLowerCase();
+        const matchName = (disp.studentName || '').toLowerCase().includes(q);
+        const matchRoll = (disp.rollNo || '').toLowerCase().includes(q);
+        const matchPhone = (disp.phone || '').toLowerCase().includes(q);
+        const matchDist = (disp.district || '').toLowerCase().includes(q);
+        const matchGrade = (disp.grade || '').toLowerCase().includes(q);
+        if (!matchName && !matchRoll && !matchPhone && !matchDist && !matchGrade) return false;
+      }
+      return true;
+    });
+  }, [submissions, selectedFormForResponses, formDistrictFilter, formSearchQuery]);
+
+  // Districts represented in the selected form
+  const selectedFormDistricts = useMemo(() => {
+    if (!selectedFormForResponses) return [];
+    const distSet = new Set<string>();
+    submissions
+      .filter(s => s.formId === selectedFormForResponses.id)
+      .forEach(s => {
+        const d = getSubmissionDisplay(s).district?.trim();
+        if (d) distSet.add(d);
+      });
+    return Array.from(distSet).sort();
+  }, [submissions, selectedFormForResponses]);
+
   // Export to Excel
-  const handleExportExcel = () => {
-    if (filteredSubmissions.length === 0) {
+  const handleExportExcel = (targetSubs?: FormSubmission[], customTitle?: string) => {
+    const subsToExport = targetSubs || filteredSubmissions;
+    if (subsToExport.length === 0) {
       alert("ஏற்றுமதி செய்வதற்கு தரவுகள் எதுவும் இல்லை.");
       return;
     }
 
-    const exportRows = filteredSubmissions.map((sub, idx) => {
+    const exportRows = subsToExport.map((sub, idx) => {
       const disp = getSubmissionDisplay(sub);
       const row: Record<string, any> = {
         "வ.எண் (No)": idx + 1,
@@ -615,12 +663,14 @@ export default function AdminForms() {
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Submissions");
-    XLSX.writeFile(workbook, `Form_Responses_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    const cleanTitle = (customTitle || 'Form_Responses').replace(/[^a-zA-Z0-9_\-\u0B80-\u0BFF]/g, '_').slice(0, 30);
+    XLSX.writeFile(workbook, `${cleanTitle}_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   // Export to PDF
-  const handleExportPDF = () => {
-    if (filteredSubmissions.length === 0) {
+  const handleExportPDF = (targetSubs?: FormSubmission[], customTitle?: string) => {
+    const subsToExport = targetSubs || filteredSubmissions;
+    if (subsToExport.length === 0) {
       alert("அச்சிட தரவுகள் எதுவும் இல்லை.");
       return;
     }
@@ -629,9 +679,9 @@ export default function AdminForms() {
     doc.setFontSize(16);
     doc.text(adminSettings?.instituteName || "AGARAM DHINES ONLINE ACADEMY", 14, 15);
     doc.setFontSize(11);
-    doc.text(`Google Forms Submissions Report • Date: ${new Date().toLocaleDateString()}`, 14, 22);
+    doc.text(`${customTitle || 'Google Forms Submissions Report'} • Date: ${new Date().toLocaleDateString()}`, 14, 22);
 
-    const tableData = filteredSubmissions.map((s, idx) => {
+    const tableData = subsToExport.map((s, idx) => {
       const disp = getSubmissionDisplay(s);
       return [
         idx + 1,
@@ -653,7 +703,8 @@ export default function AdminForms() {
       styles: { fontSize: 9 }
     });
 
-    doc.save(`Form_Submissions_${new Date().toISOString().slice(0, 10)}.pdf`);
+    const cleanTitle = (customTitle || 'Form_Submissions').replace(/[^a-zA-Z0-9_\-\u0B80-\u0BFF]/g, '_').slice(0, 30);
+    doc.save(`${cleanTitle}_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   return (
@@ -813,24 +864,9 @@ export default function AdminForms() {
           }`}
         >
           <FileText size={16} />
-          <span>படிவங்கள் (All Forms)</span>
+          <span>படிவங்கள் & பதில்கள் (Forms & Responses)</span>
           <span className="bg-slate-100 text-slate-700 text-xs px-2 py-0.5 rounded-full font-bold">
             {forms.length}
-          </span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('submissions')}
-          className={`pb-3 px-4 font-bold text-sm border-b-2 transition-all flex items-center gap-2 ${
-            activeTab === 'submissions'
-              ? 'border-blue-700 text-blue-900'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Users size={16} />
-          <span>சமர்ப்பிப்புகள் / பதில்கள் (Responses)</span>
-          <span className="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full font-bold">
-            {filteredSubmissions.length}
           </span>
         </button>
 
@@ -844,6 +880,22 @@ export default function AdminForms() {
         >
           <Plus size={16} />
           <span>{editingForm ? "படிவத்தை திருத்து (Edit)" : "புதிய படிவம் (New Form)"}</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('submissions')}
+          className={`pb-3 px-3 sm:px-4 font-medium text-xs sm:text-sm border-b-2 transition-all flex items-center gap-1.5 ${
+            activeTab === 'submissions'
+              ? 'border-blue-700 text-blue-900 font-bold'
+              : 'border-transparent text-slate-400 hover:text-slate-700'
+          }`}
+          title="அனைத்துப் படிவங்களின் ஒட்டுமொத்த பதிவுகள்"
+        >
+          <Users size={15} />
+          <span>ஒட்டுமொத்த பதிவுகள் (All Responses Log)</span>
+          <span className="bg-blue-50 text-blue-700 text-[10px] px-2 py-0.2 rounded-full font-bold">
+            {submissions.length}
+          </span>
         </button>
       </div>
 
@@ -914,16 +966,57 @@ export default function AdminForms() {
                             }`}>
                               {item.maxSubmissionsPerPhone === 1 ? '1 Entry/Phone' : item.maxSubmissionsPerPhone === 2 ? 'Max 2/Phone' : 'Unlimited'}
                             </span>
-                            <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">
-                              {subCount} சமர்ப்பிப்புகள்
-                            </span>
+                            
+                            {/* Clickable Submissions Badge */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedFormForResponses(item);
+                                setFormSearchQuery('');
+                                setFormDistrictFilter('all');
+                              }}
+                              className="font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 hover:text-blue-900 border border-blue-200 px-2 py-0.5 rounded-md transition-all flex items-center gap-1 cursor-pointer group"
+                              title="இந்த படிவத்தின் பதில்களைப் பார்க்க கிளிக் செய்யவும்"
+                            >
+                              <Users size={11} className="text-blue-600 group-hover:scale-110 transition-transform" />
+                              <span>{subCount} சமர்ப்பிப்புகள்</span>
+                              <span className="text-[10px] text-blue-500 font-normal underline ml-0.5">திறக்க ↗</span>
+                            </button>
                           </div>
                         </div>
                       </div>
                     </div>
 
                     {/* Form Action Controls */}
-                    <div className="p-4 bg-slate-50/80 border-t border-slate-100 flex flex-col gap-2">
+                    <div className="p-4 bg-slate-50/80 border-t border-slate-100 flex flex-col gap-2.5">
+                      
+                      {/* Prominent Direct Form Responses Portal Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedFormForResponses(item);
+                          setFormSearchQuery('');
+                          setFormDistrictFilter('all');
+                        }}
+                        className="w-full flex items-center justify-between py-2 px-3 rounded-xl bg-gradient-to-r from-blue-700 to-indigo-800 hover:from-blue-800 hover:to-indigo-900 text-white font-bold text-xs transition-all shadow-xs group cursor-pointer active:scale-99"
+                        title="இந்த படிவத்தின் பதில்கள் மற்றும் சமர்ப்பிப்புகளை நேரடியாக திறக்க"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-5 h-5 rounded-md bg-white/20 flex items-center justify-center text-white">
+                            <Users size={12} />
+                          </div>
+                          <span>பதில்கள் & சமர்ப்பிப்புகள் (Responses)</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="bg-white text-blue-900 px-2 py-0.5 rounded-full text-[11px] font-extrabold shadow-2xs">
+                            {subCount} பதில்கள்
+                          </span>
+                          <span className="text-blue-200 text-xs font-normal group-hover:translate-x-0.5 transition-transform">
+                            திறக்க ↗
+                          </span>
+                        </div>
+                      </button>
+
                       {/* Share Buttons */}
                       <div className="grid grid-cols-3 gap-1.5">
                         <button
@@ -965,14 +1058,30 @@ export default function AdminForms() {
 
                       {/* Management Buttons */}
                       <div className="flex items-center justify-between pt-1 text-xs">
-                        <button
-                          onClick={() => handleToggleStatus(item)}
-                          className={`font-semibold underline ${
-                            item.status === 'active' ? 'text-amber-700 hover:text-amber-900' : 'text-emerald-700 hover:text-emerald-900'
-                          }`}
-                        >
-                          {item.status === 'active' ? 'படிவத்தை மூடு (Close)' : 'திறக்க (Reopen)'}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleToggleStatus(item)}
+                            className={`font-semibold underline ${
+                              item.status === 'active' ? 'text-amber-700 hover:text-amber-900' : 'text-emerald-700 hover:text-emerald-900'
+                            }`}
+                          >
+                            {item.status === 'active' ? 'படிவத்தை மூடு (Close)' : 'திறக்க (Reopen)'}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedFormForResponses(item);
+                              setFormSearchQuery('');
+                              setFormDistrictFilter('all');
+                            }}
+                            className="text-blue-700 hover:text-blue-900 font-semibold flex items-center gap-0.5 text-[11px]"
+                            title="பதில்களைப் பார்க்க"
+                          >
+                            <Eye size={12} />
+                            <span>பதில்கள் ({subCount})</span>
+                          </button>
+                        </div>
 
                         <div className="flex items-center gap-1">
                           <button
@@ -1873,12 +1982,380 @@ export default function AdminForms() {
         </div>
       )}
 
+      {/* MODAL: DEDICATED FORM RESPONSES & SUBMISSIONS PORTAL */}
+      {selectedFormForResponses && (() => {
+        const formId = selectedFormForResponses.id;
+        const formAllSubs = submissions.filter(s => s.formId === formId);
+        const enrolledCount = formAllSubs.filter(s => s.status === 'enrolled').length;
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 md:p-6 overflow-y-auto">
+            <div className="bg-white rounded-3xl max-w-5xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95">
+              
+              {/* Top Banner Accent */}
+              <div
+                className="h-3 w-full"
+                style={{ backgroundColor: selectedFormForResponses.themeColor || '#1e3a8a' }}
+              />
+
+              {/* Portal Header */}
+              <div className="p-5 sm:p-6 border-b border-slate-100 bg-slate-50/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-800 bg-blue-100 px-2.5 py-0.5 rounded-full">
+                      படிவப் பதில்கள் (Form Responses Portal)
+                    </span>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold ${
+                      selectedFormForResponses.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {selectedFormForResponses.status === 'active' ? '● Active' : '● Closed'}
+                    </span>
+                    <span className="text-xs font-mono text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded">
+                      {selectedFormForResponses.category}
+                    </span>
+                  </div>
+
+                  <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 leading-snug">
+                    {selectedFormForResponses.title}
+                  </h2>
+                  {selectedFormForResponses.description && (
+                    <p className="text-xs text-slate-500 line-clamp-1 max-w-2xl">
+                      {selectedFormForResponses.description}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 self-end md:self-center">
+                  <button
+                    onClick={() => setSelectedFormForResponses(null)}
+                    className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-full transition-colors"
+                    title="மூடுக (Close Portal)"
+                  >
+                    <X size={22} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Stats Bar */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-4 bg-white border-b border-slate-100 text-xs">
+                <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-3 flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold shrink-0">
+                    <Users size={16} />
+                  </div>
+                  <div>
+                    <div className="text-base font-bold text-blue-950">{formAllSubs.length}</div>
+                    <div className="text-[11px] text-blue-700 font-medium">மொத்த சமர்ப்பிப்புகள்</div>
+                  </div>
+                </div>
+
+                <div className="bg-emerald-50/70 border border-emerald-100 rounded-xl p-3 flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0">
+                    <UserPlus size={16} />
+                  </div>
+                  <div>
+                    <div className="text-base font-bold text-emerald-950">{enrolledCount}</div>
+                    <div className="text-[11px] text-emerald-700 font-medium">மாணவர் சேர்க்கை</div>
+                  </div>
+                </div>
+
+                <div className="bg-amber-50/70 border border-amber-100 rounded-xl p-3 flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center font-bold shrink-0">
+                    <MapPin size={16} />
+                  </div>
+                  <div>
+                    <div className="text-base font-bold text-amber-950">{selectedFormDistricts.length}</div>
+                    <div className="text-[11px] text-amber-700 font-medium">பங்கேற்ற மாவட்டங்கள்</div>
+                  </div>
+                </div>
+
+                <div className="bg-purple-50/70 border border-purple-100 rounded-xl p-3 flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold shrink-0">
+                    <FileText size={16} />
+                  </div>
+                  <div>
+                    <div className="text-base font-bold text-purple-950">{selectedFormForResponses.fields.length}</div>
+                    <div className="text-[11px] text-purple-700 font-medium">படிவக் கேள்விகள்</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Toolbar */}
+              <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 text-xs">
+                
+                {/* Search & District Filter */}
+                <div className="flex flex-wrap items-center gap-2 flex-1">
+                  <div className="relative flex-1 min-w-[200px]">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={formSearchQuery}
+                      onChange={(e) => setFormSearchQuery(e.target.value)}
+                      placeholder="மாணவர் பெயர், போன், பதிவு எண் தேட..."
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+
+                  {selectedFormDistricts.length > 0 && (
+                    <div className="relative min-w-[160px]">
+                      <select
+                        value={formDistrictFilter}
+                        onChange={(e) => setFormDistrictFilter(e.target.value)}
+                        className="w-full pl-3 pr-7 py-2 rounded-xl border border-slate-300 text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      >
+                        <option value="all">அனைத்து மாவட்டங்களும் ({formAllSubs.length})</option>
+                        {selectedFormDistricts.map((d, idx) => (
+                          <option key={idx} value={d}>{d}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* Export & Actions */}
+                <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+                  <button
+                    onClick={() => handleExportExcel(selectedFormSubmissions, selectedFormForResponses.title)}
+                    className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors shadow-2xs"
+                    title="இந்த படிவத்தின் பதில்களை Excel கோப்பாக பதிவிறக்க"
+                  >
+                    <Download size={13} />
+                    <span>Excel (.xlsx)</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleExportPDF(selectedFormSubmissions, selectedFormForResponses.title)}
+                    className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-semibold transition-colors shadow-2xs"
+                    title="PDF அறிக்கையாக அச்சிட"
+                  >
+                    <Printer size={13} />
+                    <span>Print PDF</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleCopyLink(formId)}
+                    className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium transition-colors shadow-2xs"
+                    title="படிவ இணைப்பை நகலெடுக்க"
+                  >
+                    {copiedId === formId ? (
+                      <>
+                        <Check size={13} className="text-emerald-600" />
+                        <span className="text-emerald-700 font-bold">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={13} />
+                        <span>Copy Link</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => handleShareWhatsApp(selectedFormForResponses)}
+                    className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-medium transition-colors shadow-2xs"
+                    title="WhatsApp ஊடாக பகிர"
+                  >
+                    <Share2 size={13} />
+                    <span>WhatsApp</span>
+                  </button>
+
+                  <button
+                    onClick={() => setQrModalForm(selectedFormForResponses)}
+                    className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium transition-colors shadow-2xs"
+                    title="QR Code பார்க்க"
+                  >
+                    <QrCode size={13} />
+                    <span>QR</span>
+                  </button>
+
+                  {formAllSubs.length > 0 && (
+                    <button
+                      onClick={() => handleClearAllSubmissions(formId)}
+                      className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold transition-colors"
+                      title="இந்த படிவத்தின் அனைத்து பதில்களையும் அழிக்க"
+                    >
+                      <Trash2 size={13} />
+                      <span>Clear</span>
+                    </button>
+                  )}
+                </div>
+
+              </div>
+
+              {/* Submissions Table / View */}
+              <div className="overflow-y-auto flex-1 p-4">
+                {selectedFormSubmissions.length === 0 ? (
+                  <div className="py-16 text-center space-y-3">
+                    <Users size={48} className="text-slate-300 mx-auto" />
+                    <h3 className="text-base font-bold text-slate-800">
+                      {formAllSubs.length === 0 
+                        ? "இந்த படிவத்திற்கு இன்னும் சமர்ப்பிப்புகள் வரவில்லை (No Responses Yet)" 
+                        : "தேடலுக்குரிய சமர்ப்பிப்புகள் இல்லை"}
+                    </h3>
+                    <p className="text-xs text-slate-500 max-w-md mx-auto">
+                      {formAllSubs.length === 0 
+                        ? "படிவத்தின் பொது இணைப்பை மாணவர்கள் அல்லது வாடிக்கையாளர்களிடம் WhatsApp அல்லது சமூக வலைத்தளங்களில் பகிர்ந்து பதில்களைப் பெறவும்." 
+                        : "வடிப்பான்கள் அல்லது தேடல் சொல்லுக்கு ஏற்ப முடிவுகள் எதுவும் கிடைக்கவில்லை."}
+                    </p>
+                    {formAllSubs.length === 0 && (
+                      <div className="pt-2 flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => handleCopyLink(formId)}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-semibold text-xs shadow-xs"
+                        >
+                          <Copy size={13} />
+                          <span>இணைப்பை நகலெடு (Copy Link)</span>
+                        </button>
+                        <button
+                          onClick={() => handleShareWhatsApp(selectedFormForResponses)}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-xs"
+                        >
+                          <Share2 size={13} />
+                          <span>WhatsApp இல் பகிர்க</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold uppercase text-[10px] tracking-wider">
+                        <tr>
+                          <th className="px-3.5 py-3">#</th>
+                          <th className="px-3.5 py-3">மாணவர் பெயர் (Name)</th>
+                          <th className="px-3.5 py-3">மாவட்டம் (District)</th>
+                          <th className="px-3.5 py-3">வகுப்பு (Grade)</th>
+                          <th className="px-3.5 py-3">தொலைபேசி / WhatsApp</th>
+                          <th className="px-3.5 py-3">திகதி & நேரம்</th>
+                          <th className="px-3.5 py-3">நிலை</th>
+                          <th className="px-3.5 py-3 text-right">நடவடிக்கைகள் (Actions)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-800">
+                        {selectedFormSubmissions.map((sub, index) => {
+                          const disp = getSubmissionDisplay(sub);
+                          return (
+                            <tr key={sub.id} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="px-3.5 py-3 font-mono text-slate-400">{index + 1}</td>
+                              <td className="px-3.5 py-3 font-bold text-slate-900">
+                                {disp.studentName || "-"}
+                                {disp.rollNo && (
+                                  <span className="block font-mono text-[10px] text-slate-400 font-normal">
+                                    Roll: {disp.rollNo}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-3.5 py-3 font-medium text-slate-700">
+                                <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md text-[11px]">
+                                  <MapPin size={10} className="text-slate-400" />
+                                  {disp.district || "-"}
+                                </span>
+                              </td>
+                              <td className="px-3.5 py-3 text-slate-600">{disp.grade || "-"}</td>
+                              <td className="px-3.5 py-3 font-mono text-slate-700">
+                                {disp.phone ? (
+                                  <a
+                                    href={`https://wa.me/${disp.phone.replace(/[^0-9]/g, '')}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-emerald-700 hover:underline flex items-center gap-1 font-semibold"
+                                  >
+                                    <Phone size={11} />
+                                    {disp.phone}
+                                  </a>
+                                ) : (
+                                  "-"
+                                )}
+                              </td>
+                              <td className="px-3.5 py-3 text-slate-400 text-[11px] whitespace-nowrap">
+                                {new Date(sub.submittedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                              </td>
+                              <td className="px-3.5 py-3 whitespace-nowrap">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                  sub.status === 'enrolled'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-blue-50 text-blue-700 border border-blue-100'
+                                }`}>
+                                  {sub.status === 'enrolled' ? '✓ Enrolled' : 'புதியது'}
+                                </span>
+                              </td>
+                              <td className="px-3.5 py-3 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => setViewSubmissionModal(sub)}
+                                    className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold text-xs transition-colors flex items-center gap-1 shadow-2xs"
+                                    title="முழுமையான கேள்விகள் & பதில்களைப் பார்க்க"
+                                  >
+                                    <Eye size={12} />
+                                    <span>View</span>
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleEnrollStudent(sub)}
+                                    className={`px-2.5 py-1 rounded-lg font-semibold text-xs transition-colors flex items-center gap-1 ${
+                                      sub.status === 'enrolled'
+                                        ? 'bg-emerald-50 text-emerald-700 cursor-default'
+                                        : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
+                                    }`}
+                                    title="அகாடமி மாணவர் பட்டியலில் சேர்க்க"
+                                  >
+                                    <UserPlus size={11} />
+                                    <span>{sub.status === 'enrolled' ? 'Enrolled' : '+ Student'}</span>
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleDeleteSubmission(sub.id)}
+                                    className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                    title="பதிவை நிரந்தரமாக நீக்க"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Portal Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between flex-wrap gap-2 text-xs">
+                <span className="text-slate-500 font-medium">
+                  காண்பிக்கப்படும் பதில்கள்: <strong className="text-slate-800">{selectedFormSubmissions.length}</strong> / {formAllSubs.length}
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleToggleStatus(selectedFormForResponses)}
+                    className={`font-semibold underline ${
+                      selectedFormForResponses.status === 'active' ? 'text-amber-700 hover:text-amber-900' : 'text-emerald-700 hover:text-emerald-900'
+                    }`}
+                  >
+                    {selectedFormForResponses.status === 'active' ? 'படிவத்தை மூடு (Close Form)' : 'திறக்க (Reopen Form)'}
+                  </button>
+
+                  <button
+                    onClick={() => setSelectedFormForResponses(null)}
+                    className="px-4 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold transition-colors"
+                  >
+                    மூடுக (Close)
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+
       {/* MODAL 2: SUBMISSION DETAILS MODAL */}
       {viewSubmissionModal && (() => {
         const disp = getSubmissionDisplay(viewSubmissionModal);
         const parentForm = forms.find(f => f.id === viewSubmissionModal.formId);
         return (
-          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
               <div className="p-5 sm:p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
                 <div>
