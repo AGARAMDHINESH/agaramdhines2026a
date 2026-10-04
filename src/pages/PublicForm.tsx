@@ -122,20 +122,16 @@ export default function PublicForm() {
 
     const syncLatestData = async () => {
       try {
-        const [targetForm, settings, classes] = await Promise.all([
-          getFormByIdAsync(id),
-          getAdminSettings(),
-          getClasses()
-        ]);
+        // Fast direct fetch for target form only - zero delay
+        const targetForm = await getFormByIdAsync(id);
 
         if (!isMounted) return;
-
-        if (settings) setAdminSettings(settings);
-        if (classes) setClassesList(classes);
 
         if (targetForm) {
           setForm(targetForm);
           setError(null);
+          setLoading(false); // Unblock screen immediately!
+
           // If form fields were not populated, initialize them now
           setFormData(prev => {
             const initial: Record<string, any> = { ...prev };
@@ -148,9 +144,20 @@ export default function PublicForm() {
           });
         } else if (!form) {
           setError("கோரப்பட்ட படிவம் கிடைக்கவில்லை (Form Not Found)");
+          setLoading(false);
         }
+
+        // Secondary metadata (adminSettings & classes) fetched asynchronously in background without blocking student
+        getAdminSettings().then(st => {
+          if (st && isMounted) setAdminSettings(st);
+        }).catch(() => {});
+
+        getClasses().then(cl => {
+          if (cl && isMounted) setClassesList(cl);
+        }).catch(() => {});
+
       } catch (err: any) {
-        if (!form) {
+        if (!form && isMounted) {
           setError(err?.message || "படிவத்தை ஏற்றுவதில் பிழை ஏற்பட்டது.");
         }
       } finally {

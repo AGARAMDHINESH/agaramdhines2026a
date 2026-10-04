@@ -3180,55 +3180,112 @@ const DEFAULT_FORMS: CustomForm[] = [
   }
 ];
 
+// In-memory fast cache for individual forms (0ms instant lookup)
+const memoryFormsCache = new Map<string, CustomForm>();
+
+export const cacheSingleForm = (form: CustomForm) => {
+  if (!form || !form.id) return;
+  const idStr = String(form.id).trim();
+  memoryFormsCache.set(idStr, form);
+  try {
+    safeSetItem(`form_${idStr}`, JSON.stringify(form));
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(`form_${idStr}`, JSON.stringify(form));
+    }
+  } catch (_) {}
+};
+
 // Instant Fast Form Fetch (Zero Delay for Students)
 export const getFastFormById = (formId: string): CustomForm | null => {
-  // Check local storage directly
+  if (!formId) return null;
+  const idStr = String(formId).trim();
+
+  // 1. Check in-memory Map (0ms)
+  if (memoryFormsCache.has(idStr)) {
+    return memoryFormsCache.get(idStr)!;
+  }
+
+  // 2. Check dedicated local/session storage key
+  try {
+    const rawSingle = safeGetItem(`form_${idStr}`) || 
+      (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`form_${idStr}`) : null);
+    if (rawSingle) {
+      const parsed = JSON.parse(rawSingle);
+      if (parsed && parsed.id) {
+        memoryFormsCache.set(idStr, parsed);
+        return parsed;
+      }
+    }
+  } catch (_) {}
+
+  // 3. Check 'forms' collection in local storage
   try {
     const raw = safeGetItem('forms');
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        const found = parsed.find((f: any) => f.id === formId);
-        if (found) return found;
+        const found = parsed.find((f: any) => f && String(f.id).trim() === idStr);
+        if (found) {
+          cacheSingleForm(found);
+          return found;
+        }
       }
     }
-  } catch (e) {}
+  } catch (_) {}
 
-  // Check default template fallback
-  return DEFAULT_FORMS.find(f => f.id === formId) || null;
+  // 4. Check default template fallback
+  const def = DEFAULT_FORMS.find(f => String(f.id).trim() === idStr) || null;
+  if (def) cacheSingleForm(def);
+  return def;
 };
 
-// Asynchronous Form Fetch with Direct Firestore Document Lookup (Ensures phone and computer sync 100%)
+// Asynchronous Form Fetch with Direct Firestore Document Lookup (Ultra-fast direct read)
 export const getFormByIdAsync = async (formId: string): Promise<CustomForm | null> => {
-  const fast = getFastFormById(formId);
+  if (!formId) return null;
+  const idStr = String(formId).trim();
+
+  // 1. Check fast in-memory / local cache first
+  const fast = getFastFormById(idStr);
   if (fast) return fast;
 
-  if (isFirebaseConfigured && formId) {
+  if (isFirebaseConfigured) {
     try {
-      // 1. Direct document read from Firestore collection 'forms'
-      const docRef = doc(db, 'forms', formId);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
+      // 2. Direct single document read from Firestore collection 'forms' with 2.5s responsive timeout
+      const docRef = doc(db, 'forms', idStr);
+      const docPromise = getDoc(docRef);
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+      const docSnap: any = await Promise.race([docPromise, timeoutPromise]);
+      
+      if (docSnap && docSnap.exists()) {
         const data = { ...docSnap.data(), id: docSnap.id } as CustomForm;
-        // Update singleton list
-        const currentForms = await getForms();
-        if (!currentForms.some(f => f.id === formId)) {
-          const updated = [data, ...currentForms];
-          try {
-            safeSetItem('forms', JSON.stringify(updated));
-          } catch (e) {}
-          saveForms(updated).catch(() => {});
-        }
+        cacheSingleForm(data);
         return data;
       }
     } catch (e) {
       console.warn("Direct form fetch error:", e);
     }
+
+    // 3. Quick check in singleton 'forms' document with 2s timeout
+    try {
+      const singletonRef = doc(db, 'singletons', 'forms');
+      const singPromise = getDoc(singletonRef);
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000));
+      const singSnap: any = await Promise.race([singPromise, timeoutPromise]);
+      if (singSnap && singSnap.exists()) {
+        const list = singSnap.data()?.data;
+        if (Array.isArray(list)) {
+          const found = list.find((f: any) => f && String(f.id).trim() === idStr);
+          if (found) {
+            cacheSingleForm(found);
+            return found;
+          }
+        }
+      }
+    } catch (_) {}
   }
 
-  // 2. Fetch full list as fallback
-  const allForms = await getForms();
-  return allForms.find(f => f.id === formId) || null;
+  // 4. Fallback to fast lookup or template
+  return getFastFormById(idStr);
 };
 
 export const getForms = async (): Promise<CustomForm[]> => {
@@ -3323,13 +3380,20 @@ export const getForms = async (): Promise<CustomForm[]> => {
 export const saveForms = async (forms: CustomForm[]): Promise<void> => {
   const clean = Array.isArray(forms) ? forms : [];
   
+  // Cache all forms immediately in memory and local storage
+  for (const form of clean) {
+    if (form && form.id) {
+      cacheSingleForm(form);
+    }
+  }
+
   // Also write individual form documents to Firestore
   if (isFirebaseConfigured) {
     try {
       for (const form of clean) {
         if (form && form.id) {
           const docRef = doc(db, 'forms', String(form.id));
-          await setDoc(docRef, { ...form, updatedAt: form.updatedAt || new Date().toISOString() }, { merge: true });
+          setDoc(docRef, { ...form, updatedAt: form.updatedAt || new Date().toISOString() }, { merge: true }).catch(() => {});
         }
       }
     } catch (e) {
@@ -3681,16 +3745,29 @@ export const checkPhoneSubmissionStatus = async (formId: string, rawPhone: strin
     return { count: 0, maxLimit: 1, isAllowed: true, submissions: [], preventDuplicates: true, reason: '' };
   }
 
-  const [forms, existingSubmissions] = await Promise.all([
-    getForms(),
-    getFormSubmissions()
-  ]);
-
-  const form = forms.find(f => f.id === formId);
+  // Fast single form lookup (0ms if cached)
+  const form = await getFormByIdAsync(formId);
   const maxLimit = form?.maxSubmissionsPerPhone !== undefined ? form.maxSubmissionsPerPhone : 1;
   const preventDuplicates = form?.preventDuplicatePhone !== false;
 
-  const userSubmissions = existingSubmissions.filter(s => {
+  // If duplicate checking is disabled, return immediately
+  if (!preventDuplicates || maxLimit === 0) {
+    return { count: 0, maxLimit, isAllowed: true, submissions: [], preventDuplicates: false, reason: '' };
+  }
+
+  // Fast check from local storage first
+  let existingSubmissions: any[] = [];
+  try {
+    const rawSubs = safeGetItem('formSubmissions');
+    if (rawSubs) existingSubmissions = JSON.parse(rawSubs);
+  } catch (_) {}
+
+  // If empty in local storage, query from database
+  if (!Array.isArray(existingSubmissions) || existingSubmissions.length === 0) {
+    existingSubmissions = await getData('formSubmissions', []);
+  }
+
+  const userSubmissions = (existingSubmissions || []).filter(s => {
     if (s.formId !== formId) return false;
     const subPhone = normalizePhoneNumber(s.phone || s.data?.f_phone || s.data?.phone || s.data?.whatsapp || '');
     return subPhone === normalized;
@@ -3718,8 +3795,7 @@ export const checkPhoneSubmissionStatus = async (formId: string, rawPhone: strin
 };
 
 export const submitFormResponse = async (formId: string, payload: Record<string, any>): Promise<FormSubmission> => {
-  const forms = await getForms();
-  const form = forms.find(f => f.id === formId);
+  const form = await getFormByIdAsync(formId);
   const formTitle = form ? form.title : "Custom Form Submission";
 
   if (form && form.status === 'closed') {

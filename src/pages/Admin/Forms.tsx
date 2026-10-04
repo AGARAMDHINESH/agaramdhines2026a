@@ -3,6 +3,7 @@ import {
   getForms, 
   saveForms, 
   deleteForm, 
+  cacheSingleForm,
   getFormSubmissions, 
   deleteFormSubmission, 
   deleteAllFormSubmissions,
@@ -518,6 +519,7 @@ export default function AdminForms() {
         updatedForms = [newFormObj, ...forms];
       }
 
+      cacheSingleForm(newFormObj);
       await saveForms(updatedForms);
       setForms(updatedForms);
       setEditingForm(null);
