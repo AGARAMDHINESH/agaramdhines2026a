@@ -312,15 +312,29 @@ export default function AdminForms() {
     }
   };
 
-  // Toggle Form Status
+  // Toggle Form Status - Protected with Explicit Confirmation
   const handleToggleStatus = async (formItem: CustomForm) => {
-    const updatedStatus = formItem.status === 'active' ? 'closed' : 'active';
+    const isCurrentlyActive = formItem.status !== 'closed';
+    const confirmMsg = isCurrentlyActive
+      ? `"${formItem.title}" படிவத்தை நிச்சயமாக மூட விரும்புகிறீர்களா?\n\n⚠️ கவனம்: படிவத்தை மூடினால் மாணவர்கள் புதிய பதில்களைச் சமர்ப்பிக்க முடியாது. நீங்கள் மீண்டும் 'திறக்க (Reopen)' என்று கிளிக் செய்யும் வரை இந்தப் படிவம் மூடப்பட்டிருக்கும்.`
+      : `"${formItem.title}" படிவத்தை மீண்டும் திறந்து செயலில் வைக்க (Activate/Open) விரும்புகிறீர்களா?\n\nமாணவர்கள் உடனடியாக இந்தப் படிவத்தைப் பூர்த்தி செய்து சமர்ப்பிக்க முடியும்.`;
+    
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
+    const updatedStatus = isCurrentlyActive ? 'closed' : 'active';
     const updatedList = forms.map(f => f.id === formItem.id ? { ...f, status: updatedStatus, updatedAt: new Date().toISOString() } : f);
     await saveForms(updatedList);
     setForms(updatedList);
     if (selectedFormForResponses?.id === formItem.id) {
       setSelectedFormForResponses({ ...selectedFormForResponses, status: updatedStatus });
     }
+    alert(
+      updatedStatus === 'active'
+        ? `✅ "${formItem.title}" படிவம் வெற்றிகரமாகத் திறக்கப்பட்டது! மாணவர்கள் தொடர்ந்து சமர்ப்பிக்கலாம்.`
+        : `🔒 "${formItem.title}" படிவம் மூடப்பட்டது. அட்மின் மீண்டும் திறக்கும் வரை புதிய சமர்ப்பிப்புகள் அனுமதிக்கப்படாது.`
+    );
   };
 
   // Helper to extract clean display values for any submission (past or new)
@@ -932,12 +946,20 @@ export default function AdminForms() {
                       <div className="h-2.5 w-full" style={{ backgroundColor: item.themeColor || '#1e3a8a' }} />
 
                       <div className="p-5 space-y-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold ${
-                            item.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
-                          }`}>
-                            {item.status === 'active' ? '● Active' : '● Closed'}
-                          </span>
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                              item.status === 'active' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
+                            }`}>
+                              {item.status === 'active' ? '● திறந்துள்ளது (Open)' : '● மூடப்பட்டுள்ளது (Closed)'}
+                            </span>
+                            {item.status === 'active' && (
+                              <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md font-medium border border-emerald-100/80 flex items-center gap-0.5">
+                                <Check size={10} className="text-emerald-600" />
+                                தானாக மூடப்படாது
+                              </span>
+                            )}
+                          </div>
                           <span className="text-xs font-mono text-slate-400 bg-slate-50 px-2 py-0.5 rounded">
                             {item.category}
                           </span>
@@ -1060,12 +1082,26 @@ export default function AdminForms() {
                       <div className="flex items-center justify-between pt-1 text-xs">
                         <div className="flex items-center gap-2">
                           <button
+                            type="button"
                             onClick={() => handleToggleStatus(item)}
-                            className={`font-semibold underline ${
-                              item.status === 'active' ? 'text-amber-700 hover:text-amber-900' : 'text-emerald-700 hover:text-emerald-900'
+                            className={`px-2.5 py-1 rounded-lg font-semibold text-[11px] transition-all flex items-center gap-1 ${
+                              item.status === 'active'
+                                ? 'bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-700 border border-slate-200 hover:border-rose-200'
+                                : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs font-bold'
                             }`}
+                            title={item.status === 'active' ? 'படிவத்தை மூட (Close Form)' : 'படிவத்தை மீண்டும் திறக்க (Reopen Form)'}
                           >
-                            {item.status === 'active' ? 'படிவத்தை மூடு (Close)' : 'திறக்க (Reopen)'}
+                            {item.status === 'active' ? (
+                              <>
+                                <AlertCircle size={11} className="text-slate-400" />
+                                <span>படிவத்தை மூடு</span>
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 size={11} />
+                                <span>மீண்டும் திறக்க</span>
+                              </>
+                            )}
                           </button>
 
                           <button
@@ -1554,17 +1590,25 @@ export default function AdminForms() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  நிலை (Status)
-                </label>
+                <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                  <label className="block text-xs font-bold text-slate-700">
+                    நிலை (Status)
+                  </label>
+                  <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 flex items-center gap-1">
+                    <Check size={11} className="text-emerald-600" /> தானாக மூடப்படாது (Never Auto-Closes)
+                  </span>
+                </div>
                 <select
                   value={formStatus}
                   onChange={(e: any) => setFormStatus(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-medium"
                 >
-                  <option value="active">செயலில் உள்ளது / ஏற்கப்படுகிறது (Active / Open)</option>
-                  <option value="closed">மூடப்பட்டுள்ளது (Closed)</option>
+                  <option value="active">செயலில் உள்ளது / மாணவர்கள் சமர்ப்பிக்கலாம் (Active / Always Open)</option>
+                  <option value="closed">மூடப்பட்டுள்ளது / சமர்ப்பிப்பு நிறுத்தப்பட்டது (Closed)</option>
                 </select>
+                <p className="text-[11px] text-slate-500 mt-1 leading-normal">
+                  அட்மின் கைமுறையாக மூடும் வரை இந்தப் படிவம் எப்போதும் செயல்பட்டுக் கொண்டிருக்கும். தானாக ஒருபோதும் மூடப்படாது.
+                </p>
               </div>
 
               <div>
@@ -2005,11 +2049,17 @@ export default function AdminForms() {
                     <span className="text-[10px] font-bold uppercase tracking-wider text-blue-800 bg-blue-100 px-2.5 py-0.5 rounded-full">
                       படிவப் பதில்கள் (Form Responses Portal)
                     </span>
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold ${
-                      selectedFormForResponses.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                      selectedFormForResponses.status === 'active' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
                     }`}>
-                      {selectedFormForResponses.status === 'active' ? '● Active' : '● Closed'}
+                      {selectedFormForResponses.status === 'active' ? '● திறந்துள்ளது (Active / Open)' : '● மூடப்பட்டுள்ளது (Closed)'}
                     </span>
+                    {selectedFormForResponses.status === 'active' && (
+                      <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md font-medium border border-emerald-100/80 flex items-center gap-0.5">
+                        <Check size={10} className="text-emerald-600" />
+                        தானாக மூடப்படாது
+                      </span>
+                    )}
                     <span className="text-xs font-mono text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded">
                       {selectedFormForResponses.category}
                     </span>
@@ -2329,11 +2379,23 @@ export default function AdminForms() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => handleToggleStatus(selectedFormForResponses)}
-                    className={`font-semibold underline ${
-                      selectedFormForResponses.status === 'active' ? 'text-amber-700 hover:text-amber-900' : 'text-emerald-700 hover:text-emerald-900'
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all ${
+                      selectedFormForResponses.status === 'active'
+                        ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200'
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
                     }`}
                   >
-                    {selectedFormForResponses.status === 'active' ? 'படிவத்தை மூடு (Close Form)' : 'திறக்க (Reopen Form)'}
+                    {selectedFormForResponses.status === 'active' ? (
+                      <>
+                        <AlertCircle size={13} />
+                        <span>படிவத்தை மூடு (Close Form)</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 size={13} />
+                        <span>படிவத்தை திறக்க (Reopen Form)</span>
+                      </>
+                    )}
                   </button>
 
                   <button

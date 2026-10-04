@@ -632,9 +632,9 @@ export default function PublicForm() {
                   </h2>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold ${
-                      form.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+                      form.status !== 'closed' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                     }`}>
-                      {form.status === 'active' ? '● ஏற்கும் நிலையில் உள்ளது (Open)' : '● மூடப்பட்டுள்ளது (Closed)'}
+                      {form.status !== 'closed' ? '● ஏற்கும் நிலையில் உள்ளது (Open)' : '● மூடப்பட்டுள்ளது (Closed)'}
                     </span>
                     <span className="text-xs text-slate-400 capitalize">
                       {form.category}
@@ -813,7 +813,7 @@ export default function PublicForm() {
               </div>
             </div>
           </div>
-        ) : form.status === 'active' ? (
+        ) : form.status !== 'closed' ? (
           /* Active Form Submission Form */
           <form onSubmit={handleSubmit} className="space-y-4">
             {form.fields.map((field, index) => {

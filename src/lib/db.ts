@@ -3185,12 +3185,16 @@ const memoryFormsCache = new Map<string, CustomForm>();
 
 export const cacheSingleForm = (form: CustomForm) => {
   if (!form || !form.id) return;
-  const idStr = String(form.id).trim();
-  memoryFormsCache.set(idStr, form);
+  const normalized: CustomForm = {
+    ...form,
+    status: form.status === 'closed' ? ('closed' as const) : ('active' as const)
+  };
+  const idStr = String(normalized.id).trim();
+  memoryFormsCache.set(idStr, normalized);
   try {
-    safeSetItem(`form_${idStr}`, JSON.stringify(form));
+    safeSetItem(`form_${idStr}`, JSON.stringify(normalized));
     if (typeof sessionStorage !== 'undefined') {
-      sessionStorage.setItem(`form_${idStr}`, JSON.stringify(form));
+      sessionStorage.setItem(`form_${idStr}`, JSON.stringify(normalized));
     }
   } catch (_) {}
 };
@@ -3370,6 +3374,12 @@ export const getForms = async (): Promise<CustomForm[]> => {
     await saveData('forms', DEFAULT_FORMS);
   }
 
+  // Google Forms MUST NEVER auto-close; ensure status is active unless explicitly closed by admin
+  list = list.map(f => ({
+    ...f,
+    status: f.status === 'closed' ? ('closed' as const) : ('active' as const)
+  }));
+
   try {
     safeSetItem('forms', JSON.stringify(list));
   } catch (e) {}
@@ -3378,7 +3388,10 @@ export const getForms = async (): Promise<CustomForm[]> => {
 };
 
 export const saveForms = async (forms: CustomForm[]): Promise<void> => {
-  const clean = Array.isArray(forms) ? forms : [];
+  const clean: CustomForm[] = Array.isArray(forms) ? forms.map(f => ({
+    ...f,
+    status: f.status === 'closed' ? ('closed' as const) : ('active' as const)
+  })) : [];
   
   // Cache all forms immediately in memory and local storage
   for (const form of clean) {
