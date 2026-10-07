@@ -3243,21 +3243,22 @@ export const getFastFormById = (formId: string): CustomForm | null => {
   return def;
 };
 
-// Asynchronous Form Fetch with Direct Firestore Document Lookup (Ultra-fast direct read)
+// Asynchronous Form Fetch with Direct Firestore Document Lookup & multi-level resilient fallback
 export const getFormByIdAsync = async (formId: string): Promise<CustomForm | null> => {
   if (!formId) return null;
   const idStr = String(formId).trim();
+  const lowerId = idStr.toLowerCase();
 
-  // 1. Check fast in-memory / local cache first
+  // 1. Check fast in-memory / local cache first (0ms)
   const fast = getFastFormById(idStr);
   if (fast) return fast;
 
   if (isFirebaseConfigured) {
+    // 2. Direct single document read from Firestore collection 'forms' with generous 8s timeout
     try {
-      // 2. Direct single document read from Firestore collection 'forms' with 2.5s responsive timeout
       const docRef = doc(db, 'forms', idStr);
       const docPromise = getDoc(docRef);
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000));
       const docSnap: any = await Promise.race([docPromise, timeoutPromise]);
       
       if (docSnap && docSnap.exists()) {
@@ -3269,16 +3270,16 @@ export const getFormByIdAsync = async (formId: string): Promise<CustomForm | nul
       console.warn("Direct form fetch error:", e);
     }
 
-    // 3. Quick check in singleton 'forms' document with 2s timeout
+    // 3. Check in singleton 'forms' document with 6s timeout
     try {
       const singletonRef = doc(db, 'singletons', 'forms');
       const singPromise = getDoc(singletonRef);
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000));
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000));
       const singSnap: any = await Promise.race([singPromise, timeoutPromise]);
       if (singSnap && singSnap.exists()) {
         const list = singSnap.data()?.data;
         if (Array.isArray(list)) {
-          const found = list.find((f: any) => f && String(f.id).trim() === idStr);
+          const found = list.find((f: any) => f && (String(f.id).trim() === idStr || String(f.id).trim().toLowerCase() === lowerId));
           if (found) {
             cacheSingleForm(found);
             return found;
@@ -3286,10 +3287,63 @@ export const getFormByIdAsync = async (formId: string): Promise<CustomForm | nul
         }
       }
     } catch (_) {}
+
+    // 4. Query full collection if specific docId or singleton lookup missed
+    try {
+      const colSnap = await getDocs(collection(db, 'forms'));
+      if (!colSnap.empty) {
+        for (const d of colSnap.docs) {
+          const fData = { ...d.data(), id: d.id } as CustomForm;
+          cacheSingleForm(fData);
+          if (String(fData.id).trim() === idStr || String(fData.id).trim().toLowerCase() === lowerId) {
+            return fData;
+          }
+        }
+      }
+    } catch (_) {}
   }
 
-  // 4. Fallback to fast lookup or template
+  // 5. Fallback to full getForms() list check
+  try {
+    const allForms = await getForms();
+    const foundInAll = allForms.find(f => f && (String(f.id).trim() === idStr || String(f.id).trim().toLowerCase() === lowerId));
+    if (foundInAll) {
+      cacheSingleForm(foundInAll);
+      return foundInAll;
+    }
+  } catch (_) {}
+
+  // 6. Template fallback
   return getFastFormById(idStr);
+};
+
+// Real-time listener for single form to instantly update if admin edits or publishes
+export const subscribeToFormById = (formId: string, onUpdate: (form: CustomForm | null) => void): (() => void) => {
+  if (!formId) return () => {};
+  const idStr = String(formId).trim();
+
+  // Instant delivery if in cache
+  const cached = getFastFormById(idStr);
+  if (cached) onUpdate(cached);
+
+  if (!isFirebaseConfigured) return () => {};
+
+  try {
+    const docRef = doc(db, 'forms', idStr);
+    const unsub = onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        const data = { ...snap.data(), id: snap.id } as CustomForm;
+        cacheSingleForm(data);
+        onUpdate(data);
+      }
+    }, (err) => {
+      console.warn("Realtime form listener error:", err);
+    });
+    return unsub;
+  } catch (e) {
+    console.warn("Failed to subscribe to form:", e);
+    return () => {};
+  }
 };
 
 export const getForms = async (): Promise<CustomForm[]> => {
@@ -3371,7 +3425,6 @@ export const getForms = async (): Promise<CustomForm[]> => {
 
   if (list.length === 0) {
     list = DEFAULT_FORMS;
-    await saveData('forms', DEFAULT_FORMS);
   }
 
   // Google Forms MUST NEVER auto-close; ensure status is active unless explicitly closed by admin
@@ -3400,15 +3453,17 @@ export const saveForms = async (forms: CustomForm[]): Promise<void> => {
     }
   }
 
-  // Also write individual form documents to Firestore
+  // Also write individual form documents to Firestore and await completion
   if (isFirebaseConfigured) {
     try {
-      for (const form of clean) {
+      const formPromises = clean.map(form => {
         if (form && form.id) {
           const docRef = doc(db, 'forms', String(form.id));
-          setDoc(docRef, { ...form, updatedAt: form.updatedAt || new Date().toISOString() }, { merge: true }).catch(() => {});
+          return setDoc(docRef, { ...form, updatedAt: form.updatedAt || new Date().toISOString() }, { merge: true });
         }
-      }
+        return Promise.resolve();
+      });
+      await Promise.all(formPromises);
     } catch (e) {
       console.warn("Error saving individual form docs to Firebase:", e);
     }

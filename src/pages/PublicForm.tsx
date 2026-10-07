@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { 
   getForms, 
   getFastFormById,
   getFormByIdAsync,
+  subscribeToFormById,
   submitFormResponse, 
   checkPhoneSubmissionStatus,
   CustomForm, 
@@ -17,6 +18,7 @@ import {
   AlertCircle, 
   Send, 
   RotateCcw, 
+  RotateCw,
   Globe, 
   MessageSquare, 
   FileText, 
@@ -115,67 +117,104 @@ export default function PublicForm() {
     setTimeout(() => setCopiedLink(false), 2500);
   };
 
-  // Background Sync to get latest form definition and settings without delaying initial paint
-  useEffect(() => {
+  // Robust Form Synchronizer with Automatic Retries & Network Resilience
+  const syncLatestData = useCallback(async () => {
     if (!id) return;
-    let isMounted = true;
+    const cleanId = decodeURIComponent(id || '').trim();
 
-    const syncLatestData = async () => {
-      try {
-        // Fast direct fetch for target form only - zero delay
-        const targetForm = await getFormByIdAsync(id);
+    setLoading(true);
+    setError(null);
 
-        if (!isMounted) return;
+    try {
+      let targetForm: CustomForm | null = null;
 
-        if (targetForm) {
-          setForm(targetForm);
+      // Resilient multi-attempt lookup (up to 3 attempts with brief pause to allow mobile connection establishment)
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          targetForm = await getFormByIdAsync(cleanId);
+          if (targetForm) break;
+        } catch (err) {
+          console.warn(`Form fetch attempt ${attempt} warning:`, err);
+        }
+
+        if (attempt < 3 && !targetForm) {
+          await new Promise(res => setTimeout(res, 1200));
+        }
+      }
+
+      if (targetForm) {
+        setForm(targetForm);
+        setError(null);
+        setLoading(false);
+
+        // If form fields were not populated, initialize them now
+        setFormData(prev => {
+          const initial: Record<string, any> = { ...prev };
+          targetForm!.fields.forEach(field => {
+            if (initial[field.id] === undefined) {
+              initial[field.id] = field.type === 'checkbox' ? [] : '';
+            }
+          });
+          return initial;
+        });
+      } else {
+        // Fallback check in case full getForms list has it
+        const allForms = await getForms();
+        const foundFallback = allForms.find(f => f && (String(f.id).trim() === cleanId || String(f.id).trim().toLowerCase() === cleanId.toLowerCase()));
+        if (foundFallback) {
+          setForm(foundFallback);
           setError(null);
-          setLoading(false); // Unblock screen immediately!
-
-          // If form fields were not populated, initialize them now
+          setLoading(false);
           setFormData(prev => {
             const initial: Record<string, any> = { ...prev };
-            targetForm.fields.forEach(field => {
+            foundFallback.fields.forEach(field => {
               if (initial[field.id] === undefined) {
                 initial[field.id] = field.type === 'checkbox' ? [] : '';
               }
             });
             return initial;
           });
-        } else if (!form) {
+        } else {
           setError("கோரப்பட்ட படிவம் கிடைக்கவில்லை (Form Not Found)");
           setLoading(false);
         }
-
-        // Secondary metadata (adminSettings & classes) fetched asynchronously in background without blocking student
-        getAdminSettings().then(st => {
-          if (st && isMounted) setAdminSettings(st);
-        }).catch(() => {});
-
-        getClasses().then(cl => {
-          if (cl && isMounted) setClassesList(cl);
-        }).catch(() => {});
-
-      } catch (err: any) {
-        if (!form && isMounted) {
-          setError(err?.message || "படிவத்தை ஏற்றுவதில் பிழை ஏற்பட்டது.");
-        }
-      } finally {
-        if (isMounted) setLoading(false);
       }
-    };
+
+      // Secondary metadata (adminSettings & classes) fetched asynchronously in background without blocking student
+      getAdminSettings().then(st => {
+        if (st) setAdminSettings(st);
+      }).catch(() => {});
+
+      getClasses().then(cl => {
+        if (cl) setClassesList(cl);
+      }).catch(() => {});
+
+    } catch (err: any) {
+      setError(err?.message || "படிவத்தை ஏற்றுவதில் பிழை ஏற்பட்டது.");
+      setLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    const cleanId = decodeURIComponent(id || '').trim();
+    let isMounted = true;
 
     syncLatestData();
 
+    // Attach real-time Firestore listener directly to the document
+    const unsubForm = subscribeToFormById(cleanId, (liveForm) => {
+      if (liveForm && isMounted) {
+        setForm(liveForm);
+        setError(null);
+        setLoading(false);
+      }
+    });
+
     // Listen for real-time db updates (e.g. if admin updates the form while student has page open)
     const handleDbUpdate = (e: any) => {
-      if (e?.detail?.key === 'forms' && isMounted) {
-        getFormByIdAsync(id).then(f => {
-          if (f && isMounted) {
-            setForm(f);
-            setError(null);
-          }
-        });
+      if ((e?.detail?.key === 'forms' || !e?.detail?.key) && isMounted) {
+        syncLatestData();
       }
     };
 
@@ -183,9 +222,10 @@ export default function PublicForm() {
 
     return () => {
       isMounted = false;
+      unsubForm();
       window.removeEventListener('db_updated', handleDbUpdate);
     };
-  }, [id]);
+  }, [id, syncLatestData]);
 
   const handleInputChange = (fieldId: string, value: any) => {
     setFormData(prev => ({ ...prev, [fieldId]: value }));
@@ -344,12 +384,21 @@ export default function PublicForm() {
           </div>
           <h2 className="text-xl font-bold text-slate-800">படிவம் கிடைக்கவில்லை</h2>
           <p className="text-sm text-slate-600">{error || "இந்த படிவம் நீக்கப்பட்டிருக்கலாம் அல்லது இணைப்பு தவறானது."}</p>
-          <Link
-            to="/"
-            className="inline-flex items-center gap-2 bg-[#1e3a8a] text-white px-5 py-2.5 rounded-xl font-medium hover:bg-blue-800 transition-colors text-sm shadow-sm"
-          >
-            <Globe size={16} /> முகப்புப் பக்கத்திற்குச் செல்க
-          </Link>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-2">
+            <button
+              type="button"
+              onClick={() => syncLatestData()}
+              className="inline-flex items-center gap-2 bg-[#1e3a8a] text-white px-5 py-2.5 rounded-xl font-medium hover:bg-blue-800 transition-colors text-sm shadow-sm cursor-pointer w-full sm:w-auto justify-center"
+            >
+              <RotateCw size={16} /> மீண்டும் முயற்சிக்க (Try Again)
+            </button>
+            <Link
+              to="/"
+              className="inline-flex items-center gap-2 bg-slate-100 text-slate-700 hover:bg-slate-200 px-5 py-2.5 rounded-xl font-medium transition-colors text-sm w-full sm:w-auto justify-center"
+            >
+              <Globe size={16} /> முகப்புப் பக்கம்
+            </Link>
+          </div>
         </div>
       </div>
     );
