@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getClasses, saveClasses, getStudents, getStaffs, getSubjects, saveSubjects } from '../../lib/db';
+import { getClasses, saveClasses, getStudents, getStaffs, getSubjects, saveSubjects, isGradeMatching } from '../../lib/db';
 import { Edit2, Trash2, Plus, GraduationCap, Check } from 'lucide-react';
 
 const GRADES = [
@@ -124,27 +124,30 @@ export default function Classes() {
     
     let updatedClasses;
     const normName = formData.name.trim();
-    if (editingClassId) {
-      updatedClasses = classes.map(c => 
-        (c.id === editingClassId || c.name?.trim() === normName) ? { ...c, ...formData } : c
-      );
-      setToast({ message: "Class updated successfully!", type: 'success' });
+    const existingIdx = classes.findIndex(c => 
+      (editingClassId && c.id === editingClassId) || 
+      isGradeMatching(c.name, normName)
+    );
+
+    if (existingIdx >= 0) {
+      updatedClasses = classes.map((c, idx) => idx === existingIdx ? { 
+        ...c, 
+        ...formData,
+        id: c.id || editingClassId || Date.now().toString()
+      } : c);
+      setToast({ message: "வகுப்பு விபரங்கள் வெற்றிகரமாகப் புதுப்பிக்கப்பட்டன! (Class updated successfully!)", type: 'success' });
     } else {
-      const existingIdx = classes.findIndex(c => c.name?.trim() === normName);
-      if (existingIdx >= 0) {
-        updatedClasses = classes.map((c, idx) => idx === existingIdx ? { ...c, ...formData } : c);
-      } else {
-        const newClass = {
-          id: Date.now().toString(),
-          ...formData
-        };
-        updatedClasses = [...classes, newClass];
-      }
-      setToast({ message: "Class added successfully!", type: 'success' });
+      const newClass = {
+        id: editingClassId || Date.now().toString(),
+        ...formData
+      };
+      updatedClasses = [...classes, newClass];
+      setToast({ message: "புதிய வகுப்பு வெற்றிகரமாகச் சேர்க்கப்பட்டது! (Class added successfully!)", type: 'success' });
     }
     
     setClasses(updatedClasses);
     await saveClasses(updatedClasses);
+    window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'classes' } }));
     
     setTimeout(() => setToast(null), 3000);
     setFormData({ name: '', monthlyTuitionFees: '', classTeacherId: '', subjects: [] });
@@ -414,7 +417,22 @@ export default function Classes() {
               </label>
               <select
                 value={formData.name}
-                onChange={(e) => setFormData({...formData, name: e.target.value})}
+                onChange={(e) => {
+                  const selectedName = e.target.value;
+                  const existingClass = classes.find(c => isGradeMatching(c.name, selectedName));
+                  if (existingClass) {
+                    setEditingClassId(existingClass.id);
+                    setFormData({
+                      name: existingClass.name || selectedName,
+                      monthlyTuitionFees: existingClass.monthlyTuitionFees || '',
+                      classTeacherId: existingClass.classTeacherId || '',
+                      subjects: Array.isArray(existingClass.subjects) ? [...existingClass.subjects] : (existingClass.subject ? [existingClass.subject] : [])
+                    });
+                  } else {
+                    setEditingClassId(null);
+                    setFormData(prev => ({ ...prev, name: selectedName }));
+                  }
+                }}
                 className="w-full border border-blue-200 rounded-full px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 appearance-none bg-white"
                 required
               >

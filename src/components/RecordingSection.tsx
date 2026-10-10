@@ -276,6 +276,14 @@ export const getCanonicalSubjectCategory = (name: string): string => {
     return "tamil_game";
   }
 
+  // Seminar / கருத்தரங்கு / கருத்தரங்கம் / Workshop
+  if (
+    clean.includes("கருத்தரங்கு") || clean.includes("கருத்தரங்கம்") || 
+    clean.includes("seminar") || clean.includes("workshop")
+  ) {
+    return "tamil_seminar";
+  }
+
   // Standard Tamil
   if (clean.includes("தமிழ்") || clean.includes("tamil")) {
     return "tamil";
@@ -398,7 +406,8 @@ export const SPECIALIZED_SUBJECT_CATEGORIES = new Set([
   "tamil_q_and_a_2026",
   "tamil_q_and_a",
   "tamil_literature",
-  "tamil_game"
+  "tamil_game",
+  "tamil_seminar"
 ]);
 
 export const doesItemMatchStudentSubjects = (item: RecordingItem, studentSubs?: string[]): boolean => {
@@ -506,6 +515,11 @@ export const isSubjectValidForGrade = (subjectName: string, gradeStr: string): b
   // Specialized Tamil Game is for Grade 11 or explicitly matched grade
   if (cat === "tamil_game") {
     return gradeNum >= 10;
+  }
+
+  // Seminar / கருத்தரங்கு
+  if (cat === "tamil_seminar") {
+    return true;
   }
 
   return true;

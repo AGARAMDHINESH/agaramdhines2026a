@@ -444,10 +444,11 @@ export const saveData = async (key: string, data: any) => {
       await setDoc(singletonRef, { data: cleanData, updatedAt: now }, { merge: false });
 
       // If key is students/forms/staffs/courses/etc., sync ALL individual documents cleanly without truncation
-      if (Array.isArray(cleanData) && ['forms', 'students', 'staffs', 'employeeTasks', 'dailyWorkUploads', 'zoomLinks', 'formSubmissions', 'courses', 'courseMaterials', 'youtubeLinks', 'fees'].includes(key)) {
+      if (Array.isArray(cleanData) && ['forms', 'students', 'staffs', 'employeeTasks', 'dailyWorkUploads', 'zoomLinks', 'formSubmissions', 'courses', 'courseMaterials', 'youtubeLinks', 'fees', 'classes', 'subjects'].includes(key)) {
         for (const item of cleanData) {
-          if (item && item.id) {
-            setDoc(doc(db, key, String(item.id)), { ...item, updatedAt: item.updatedAt || new Date().toISOString() }, { merge: true }).catch(() => {});
+          if (item && (item.id || item.name)) {
+            const docId = String(item.id || item.name).trim();
+            setDoc(doc(db, key, docId), { ...item, updatedAt: item.updatedAt || new Date().toISOString() }, { merge: true }).catch(() => {});
           }
         }
       }
@@ -1075,6 +1076,14 @@ export const getCanonicalSubject = (s: string): string => {
     return "tamil_q_and_a";
   }
 
+  // Seminar / கருத்தரங்கு / கருத்தரங்கம் / Workshop (Specific Course Package)
+  if (
+    clean.includes("கருத்தரங்கு") || clean.includes("கருத்தரங்கம்") || 
+    clean.includes("seminar") || clean.includes("workshop")
+  ) {
+    return "tamil_seminar";
+  }
+
   // Language & Literature combinations (e.g., தமிழ் மொழி இலக்கியம், தமிழ் மொழியும் இலக்கியமும்) -> Standard Tamil
   if ((clean.includes("மொழி") || clean.includes("மொழியும்")) && clean.includes("இலக்கிய") && !clean.includes("நயம்") && !clean.includes("nayam")) {
     return "tamil";
@@ -1185,6 +1194,20 @@ export const areSubjectsMatching = (itemSub: string, studentSub: string): boolea
     return false;
   }
 
+  return false;
+};
+
+export const isGradeMatching = (gradeA?: string, gradeB?: string): boolean => {
+  if (!gradeA || !gradeB) return false;
+  const a = String(gradeA).trim();
+  const b = String(gradeB).trim();
+  if (a.toLowerCase() === b.toLowerCase()) return true;
+
+  const numA = a.replace(/[^0-9]/g, '');
+  const numB = b.replace(/[^0-9]/g, '');
+  if (numA && numB && parseInt(numA, 10) === parseInt(numB, 10)) {
+    return true;
+  }
   return false;
 };
 
@@ -2717,7 +2740,8 @@ export const getSubjects = async (): Promise<any[]> => {
     { id: "sub_3", name: "தமிழ் மொழி இலக்கியம்", category: "Main", fee: "0", grade: "தரம் 11" },
     { id: "sub_4", name: "தமிழ் மொழி வளம் (GAME)", category: "Main", fee: "0" },
     { id: "sub_5", name: "30 நாள் (15 - 30) வது நாள்", category: "Sub", fee: "3000", grade: "தரம் 11" },
-    { id: "sub_6", name: "தமிழ் இலக்கிய நயம்", category: "Sub", fee: "4000", grade: "தரம் 11" }
+    { id: "sub_6", name: "தமிழ் இலக்கிய நயம்", category: "Sub", fee: "4000", grade: "தரம் 11" },
+    { id: "sub_7", name: "தமிழ் இறுதி கருத்தரங்கு", category: "Sub", fee: "1500", grade: "தரம் 11" }
   ];
 
   for (const s of defaultSubjects) {
@@ -2759,7 +2783,7 @@ export const getSubjects = async (): Promise<any[]> => {
           name: rawName,
           category: (typeof item === 'object' && item.category) ? item.category : "Main",
           fee: (typeof item === 'object' && item.fee !== undefined) ? String(item.fee) : "0",
-          grade: (typeof item === 'object' && item.grade) ? item.grade : "தரம் 11"
+          grade: (typeof item === 'object' && item.grade) ? item.grade : undefined
         });
       } else if (typeof item === 'object') {
         const existing = map.get(nameKey);
@@ -2846,11 +2870,38 @@ export const deleteSubject = async (id: string, name?: string) => {
   // 3. Save clean list to storage and singleton
   await saveSubjects(updated);
 
-  // 4. Delete document permanently from Firestore collection
+  // 4. Also clean up deleted subject from any Classes
+  try {
+    const rawClasses = await getData('classes', []);
+    if (Array.isArray(rawClasses) && rawClasses.length > 0) {
+      let changed = false;
+      const updatedClasses = rawClasses.map(c => {
+        if (!c) return c;
+        const cSubs = Array.isArray(c.subjects) ? c.subjects : (c.subject ? [c.subject] : []);
+        const filteredSubs = cSubs.filter((s: string) => {
+          const sName = String(s || '').trim().toLowerCase();
+          return sName !== targetName && sName !== targetId;
+        });
+        if (filteredSubs.length !== cSubs.length) {
+          changed = true;
+          return { ...c, subjects: filteredSubs, subject: filteredSubs[0] || '' };
+        }
+        return c;
+      });
+      if (changed) {
+        await saveClasses(updatedClasses);
+      }
+    }
+  } catch (err) {
+    console.warn("Class cleanup warning on subject delete:", err);
+  }
+
+  // 5. Delete document permanently from Firestore collection
   if (isFirebaseConfigured) {
     try {
+      const deletePromises: Promise<any>[] = [];
       if (targetId) {
-        deleteDoc(doc(db, 'subjects', targetId)).catch(() => {});
+        deletePromises.push(deleteDoc(doc(db, 'subjects', targetId)).catch(() => {}));
       }
       if (targetName) {
         const querySnapshot = await getDocs(collection(db, 'subjects'));
@@ -2858,10 +2909,11 @@ export const deleteSubject = async (id: string, name?: string) => {
           const data = docSnap.data();
           const docName = String(data?.name || '').trim().toLowerCase();
           if (docName === targetName || docSnap.id === targetId) {
-            deleteDoc(doc(db, 'subjects', docSnap.id)).catch(() => {});
+            deletePromises.push(deleteDoc(doc(db, 'subjects', docSnap.id)).catch(() => {}));
           }
         });
       }
+      await Promise.all(deletePromises);
     } catch (err) {
       console.warn("Firebase deleteSubject warning:", err);
     }

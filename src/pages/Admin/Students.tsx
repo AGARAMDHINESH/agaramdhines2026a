@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { getStudents, saveStudents, deleteStudent, getClasses, getAdminSettings, sanitizeSubjectList, areSubjectsMatching } from "../../lib/db";
+import { getStudents, saveStudents, deleteStudent, getClasses, getAdminSettings, getSubjects, sanitizeSubjectList, areSubjectsMatching, isGradeMatching } from "../../lib/db";
 import { isSubjectValidForGrade, getCanonicalSubjectCategory } from "../../components/RecordingSection";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { secondaryAuth } from "../../lib/firebase";
@@ -200,7 +200,7 @@ export default function Students() {
     getStudents().then(setStudents);
     getClasses().then(setClasses);
     getAdminSettings().then(setAdminSettings);
-    import('../../lib/db').then(({ getSubjects }) => getSubjects().then(setAllSubjects));
+    getSubjects().then(setAllSubjects);
 
     const handleDbUpdate = (e: any) => {
       const key = e.detail?.key;
@@ -211,7 +211,7 @@ export default function Students() {
         getClasses().then(setClasses);
       }
       if (!key || key === 'subjects') {
-        import('../../lib/db').then(({ getSubjects }) => getSubjects().then(setAllSubjects));
+        getSubjects().then(setAllSubjects);
       }
     };
 
@@ -334,59 +334,116 @@ export default function Students() {
 
   const sortedClasses = [...classes].sort((a, b) => getGradeSortValue(a.name) - getGradeSortValue(b.name));
 
-  const coreDefaultSubjects = ["தமிழ்", "கணிதம்", "விஞ்ஞானம்", "ஆங்கிலம்", "வரலாறு", "தமிழ் மொழி இலக்கியம்", "தமிழ் வினா விடை", "தமிழ் இலக்கிய நயம்", "தமிழ் மொழி வளம் (GAME)", "30 நாள் தமிழ் பாடநெறி (தரம் 11)", "30 நாள் (15 - 30) வது நாள்"];
+  const isSubjectEnrolled = (enrolledSubjects: string[], subjectName: string): boolean => {
+    if (!Array.isArray(enrolledSubjects) || !subjectName) return false;
+    const target = subjectName.trim().toLowerCase();
+    return enrolledSubjects.some(s => {
+      const current = String(s).trim().toLowerCase();
+      if (current === target) return true;
+      // Handle base Tamil language synonyms
+      if ((current === 'tamil' && target === 'தமிழ்') || (current === 'தமிழ்' && target === 'tamil')) return true;
+      // Handle Tamil literature synonyms
+      if (
+        (current === 'இலக்கிய நயம்' || current === 'தமிழ் இலக்கிய நயம்') &&
+        (target === 'இலக்கிய நயம்' || target === 'தமிழ் இலக்கிய நயம்')
+      ) return true;
+      return false;
+    });
+  };
 
-  const rawAvailableSubjects = Array.from(new Set([
-    ...coreDefaultSubjects,
-    ...allSubjects.map(s => (typeof s === 'string' ? s : s?.name)).filter(Boolean),
-    ...classes.flatMap(c => (Array.isArray(c?.subjects) ? c.subjects : (c?.subject ? [c.subject] : []))).filter(Boolean),
-    ...(formData.subjects || []),
-    ...students.flatMap(s => s.subjects || s.enrolledClasses || [])
-  ])).map(s => String(s).trim()).filter(s => {
-    if (!s) return false;
-    return isSubjectValidForGrade(s, formData.grade || "");
-  });
+  const availableSubjects = React.useMemo(() => {
+    const studentGrade = (formData.grade || "").toString().trim();
+    const result: string[] = [];
+    const seen = new Set<string>();
 
-  const availableSubjectsMap = new Map<string, string>();
-  rawAvailableSubjects.forEach(s => {
-    const cat = getCanonicalSubjectCategory(s) || s.toLowerCase().trim();
-    if (!availableSubjectsMap.has(cat)) {
-      if (cat === "tamil") {
-        availableSubjectsMap.set(cat, "தமிழ்");
-      } else if (cat === "tamil_literature") {
-        availableSubjectsMap.set(cat, "தமிழ் இலக்கிய நயம்");
-      } else {
-        availableSubjectsMap.set(cat, s.trim());
+    const addSub = (rawName: any, bypassGradeFilter = false) => {
+      if (!rawName) return;
+      let nameStr = String(typeof rawName === 'string' ? rawName : (rawName.name || '')).trim();
+      if (!nameStr) return;
+
+      if (nameStr.toLowerCase() === 'tamil') {
+        nameStr = 'தமிழ்';
       }
+
+      const lower = nameStr.toLowerCase();
+
+      // STRICT EXCLUSION: Never show unwanted non-Tamil generic subjects like Maths, Science, History, English
+      // unless this specific student already has it enrolled in their saved profile
+      const isUnwantedGeneric = (
+        lower === "கணிதம்" || lower === "maths" || lower === "mathematics" ||
+        lower === "விஞ்ஞானம்" || lower === "science" ||
+        lower === "வரலாறு" || lower === "history" ||
+        lower === "ஆங்கிலம்" || lower === "english"
+      );
+      const isAlreadyOnStudent = isSubjectEnrolled(formData.subjects || [], nameStr);
+      if (isUnwantedGeneric && !isAlreadyOnStudent) {
+        return;
+      }
+
+      // Check grade match only if NOT bypassed and subject has explicit grade and is not already on student
+      if (!bypassGradeFilter && studentGrade && !isAlreadyOnStudent) {
+        if (!isSubjectValidForGrade(nameStr, studentGrade)) return;
+      }
+
+      const key = nameStr.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(nameStr);
+      }
+    };
+
+    // 1. HIGHEST PRIORITY: Subjects explicitly assigned to this class in Academic -> Classes ("All Classes")
+    const matchingClass = classes.find(c => isGradeMatching(studentGrade, c.name));
+    if (matchingClass) {
+      const classSubs = Array.isArray(matchingClass.subjects) 
+        ? matchingClass.subjects 
+        : (matchingClass.subject ? [matchingClass.subject] : []);
+      classSubs.forEach(s => addSub(s, true));
     }
-  });
 
-  // Guarantee தமிழ் இலக்கிய நயம் is always available in subject options for eligible grades
-  if (!availableSubjectsMap.has("tamil_literature") && isSubjectValidForGrade("தமிழ் இலக்கிய நயம்", formData.grade || "")) {
-    availableSubjectsMap.set("tamil_literature", "தமிழ் இலக்கிய நயம்");
-  }
+    // 2. SECOND PRIORITY: ALL subjects created in Academic -> Subjects ("Manage Subjects")
+    // Every subject created by admin must ALWAYS be displayed and accessible
+    allSubjects.forEach(s => {
+      const subObj = typeof s === 'object' ? s : { name: s };
+      const sName = subObj?.name;
+      addSub(sName, true);
+    });
 
-  const availableSubjects = Array.from(availableSubjectsMap.values());
+    // 3. THIRD PRIORITY: Any subject already enrolled on this student (Zero Data Loss)
+    (formData.subjects || []).forEach(s => addSub(s, true));
+
+    // 4. Default Core Tamil Academy Subjects (Tamil only - never Maths/Science/History/English)
+    const baseTamilAcademyDefaults = [
+      "தமிழ்",
+      "தமிழ் வினா விடை",
+      "தமிழ் இலக்கிய நயம்",
+      "தமிழ் மொழி இலக்கியம்",
+      "தமிழ் மொழி வளம் (GAME)",
+      "தமிழ் இறுதி கருத்தரங்கு"
+    ];
+    baseTamilAcademyDefaults.forEach(s => addSub(s, true));
+
+    return result;
+  }, [formData.grade, formData.subjects, classes, allSubjects]);
 
   const handleSubjectToggle = (subject: string) => {
     setFormData(prev => {
-      const isChecked = prev.subjects.some(s => {
-        if (s.trim().toLowerCase() === subject.trim().toLowerCase()) return true;
-        const sCat = getCanonicalSubjectCategory(s);
-        const subCat = getCanonicalSubjectCategory(subject);
-        return Boolean(sCat && subCat && sCat === subCat);
-      });
+      const isChecked = isSubjectEnrolled(prev.subjects, subject);
       let updatedSubjects: string[];
       if (isChecked) {
+        const target = subject.trim().toLowerCase();
         updatedSubjects = prev.subjects.filter(s => {
-          if (s.trim().toLowerCase() === subject.trim().toLowerCase()) return false;
-          const sCat = getCanonicalSubjectCategory(s);
-          const subCat = getCanonicalSubjectCategory(subject);
-          if (sCat && subCat && sCat === subCat) return false;
+          const current = String(s).trim().toLowerCase();
+          if (current === target) return false;
+          if ((current === 'tamil' && target === 'தமிழ்') || (current === 'தமிழ்' && target === 'tamil')) return false;
+          if (
+            (current === 'இலக்கிய நயம்' || current === 'தமிழ் இலக்கிய நயம்') &&
+            (target === 'இலக்கிய நயம்' || target === 'தமிழ் இலக்கிய நயம்')
+          ) return false;
           return true;
         });
       } else {
-        updatedSubjects = [...prev.subjects, subject];
+        updatedSubjects = [...prev.subjects, subject.trim()];
       }
       return { ...prev, subjects: sanitizeSubjectList(updatedSubjects) };
     });
@@ -1734,12 +1791,7 @@ ${portalUrl}
                   <div className="max-h-40 overflow-y-auto p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 custom-scrollbar">
                     {availableSubjects.length > 0 ? (
                       availableSubjects.map((subject: string) => {
-                        const isChecked = formData.subjects.some(s => {
-                          if (s.trim().toLowerCase() === subject.trim().toLowerCase()) return true;
-                          const sCat = getCanonicalSubjectCategory(s);
-                          const subCat = getCanonicalSubjectCategory(subject);
-                          return Boolean(sCat && subCat && sCat === subCat);
-                        });
+                        const isChecked = isSubjectEnrolled(formData.subjects, subject);
                         return (
                           <label 
                             key={subject} 
