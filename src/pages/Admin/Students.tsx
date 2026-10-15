@@ -128,7 +128,11 @@ export default function Students() {
       ]);
       
       setCopiedIdAdmin(true);
-      setTimeout(() => setCopiedIdAdmin(false), 2000);
+      setTimeout(() => {
+        setCopiedIdAdmin(false);
+        // Automatically close modal after copy as requested
+        setDocModal({ type: null, student: null });
+      }, 700);
     } catch (error) {
       console.error("Error copying document image:", error);
       alert("Failed to copy image. Clipboard copy might be restricted in this browser session. Try downloading as PNG instead. (படம் நகலெடுக்க முடியவில்லை, PNG-ஆக பதிவிறக்கவும்.)");
@@ -495,10 +499,10 @@ export default function Students() {
       setUpdateProgress(100);
       
       setTimeout(() => {
-        alert("மாணவர் சேர்க்கை வெற்றிகரமாக சேர்க்கப்பட்டது! / Student saved successfully!");
-        resetForm();
-        setView("menu");
         setUpdateProgress(-1);
+        resetForm();
+        // Automatically open the Student ID Card modal (Screenshot 31) right on this page!
+        setDocModal({ type: 'idcard', student: newStudent });
       }, 150);
     } catch (error: any) {
       console.error("Error saving student:", error);
@@ -996,6 +1000,7 @@ export default function Students() {
 
   const handleCopyLiveCardText = async () => {
     const portalUrl = window.location.origin;
+    const playStoreUrl = "https://play.google.com/store/apps/details?id=com.agaram.dhines.online.academy&pcampaignid=web_share";
     const subsText = formData.subjects.length > 0 ? formData.subjects.join(", ") : "அனைத்துப் பாடங்கள்";
     const message = `🎓 *AGARAM DHINES ONLINE ACADEMY*
 🆔 *மாணவர் அடையாள அட்டை விபரம் (Student ID Card)*
@@ -1009,6 +1014,9 @@ export default function Students() {
 • *Username:* ${formData.username || "-"}
 • *Password/PIN:* ${formData.password || "-"}
 
+📲 *Play Store App Link (செயலி இணைப்பு):*
+${playStoreUrl}
+
 🌐 *வலைத்தள முகவரி (Login Portal):*
 ${portalUrl}
 
@@ -1021,6 +1029,355 @@ ${portalUrl}
     } catch (error) {
       console.error("Error copying live ID card text:", error);
     }
+  };
+
+  const renderDocumentModal = () => {
+    if (!docModal.type || !docModal.student) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto flex flex-col">
+          <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
+            <h3 className="font-bold text-gray-800 capitalize">
+              {docModal.type === 'idcard' ? 'Student ID Card' : docModal.type === 'certificate' ? 'Course Certificate' : 'Student Details'}
+            </h3>
+            <div className="flex gap-2 items-center flex-wrap">
+              {(docModal.type === 'idcard' || docModal.type === 'certificate') && (
+                <>
+                  <button 
+                    onClick={handleCopyDocImage} 
+                    className={`flex items-center gap-1.5 px-3 py-2 text-white rounded-lg transition-all text-xs font-semibold cursor-pointer
+                      ${copiedIdAdmin ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-800 hover:bg-slate-900'}`}
+                  >
+                    {copiedIdAdmin ? (
+                      <>
+                        <Check size={14} /> Copied! (நகலெடுக்கப்பட்டது)
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={14} /> Copy Image (படமாக நகலெடு)
+                      </>
+                    )}
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const portalUrl = window.location.origin;
+                      const playStoreUrl = "https://play.google.com/store/apps/details?id=com.agaram.dhines.online.academy&pcampaignid=web_share";
+                      const msg = `🎓 *அகரம் தினேஷ் ஆன்லைன் அகாடமி*
+🆔 *மாணவர் சேர்க்கை விபரம் (Student ID & Login Details)*
+
+👤 *பெயர்:* ${docModal.student.name}
+📚 *தரம்:* ${docModal.student.grade || 'N/A'}
+🆔 *பதிவு எண் (Roll No):* ${docModal.student.rollNo || 'N/A'}
+
+🔑 *User Name:* ${docModal.student.username}
+🔒 *Password (PIN):* ${docModal.student.password}
+
+📲 *Play Store App Link (செயலி இணைப்பு):*
+${playStoreUrl}
+
+🌐 *Portal Link:* ${portalUrl}/student/login
+
+📞 *தொடர்புகளுக்கு:* 778054232
+
+நன்றி!`;
+                      navigator.clipboard.writeText(msg);
+                      setCopiedTextToast(true);
+                      setTimeout(() => {
+                        setCopiedTextToast(false);
+                        setDocModal({ type: null, student: null });
+                      }, 700);
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-2 text-white rounded-lg transition-all text-xs font-semibold cursor-pointer ${copiedTextToast ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-emerald-700 hover:bg-emerald-800'}`}
+                    title="Copy WhatsApp Login Details"
+                  >
+                    {copiedTextToast ? <Check size={14} className="text-white" /> : <MessageSquare size={14} className="text-emerald-300" />}
+                    {copiedTextToast ? "WhatsApp விபரம் Copied!" : "WhatsApp விபரம்"}
+                  </button>
+                  <button onClick={() => handleDownloadDoc('png')} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-xs font-semibold cursor-pointer shadow-sm">
+                    <Download size={14} /> PNG (பதிவிறக்கு)
+                  </button>
+                  <button onClick={() => handleDownloadDoc('pdf')} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-xs font-semibold cursor-pointer shadow-sm">
+                    <FileText size={14} /> PDF
+                  </button>
+                </>
+              )}
+              <button onClick={handlePrint} className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-xs font-semibold cursor-pointer shadow-sm">
+                <Printer size={14} /> Print
+              </button>
+              <button onClick={() => setDocModal({ type: null, student: null })} className="p-2 text-gray-500 hover:bg-gray-200 rounded-lg transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+          
+          <div className="p-8 flex justify-center bg-gray-100 flex-1 overflow-auto">
+            <div ref={printRef} className="bg-white shadow-lg">
+              {docModal.type === 'idcard' ? (
+                /* ID Card Template */
+                <div className="w-[480px] h-[300px] bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 rounded-2xl p-4 relative overflow-hidden text-white shadow-2xl shrink-0 flex flex-col justify-between">
+                  {/* Subtle background glow accents */}
+                  <div className="absolute top-0 right-0 w-36 h-36 bg-white/10 rounded-full blur-xl pointer-events-none"></div>
+                  <div className="absolute bottom-0 left-0 w-32 h-32 bg-sky-400/20 rounded-full blur-xl pointer-events-none"></div>
+
+                  {/* Top Header Row */}
+                  <div className="flex items-center justify-between gap-2 border-b border-white/20 pb-2 z-10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-12 h-12 bg-white rounded-full p-0.5 shadow-md border border-amber-300 shrink-0 flex items-center justify-center overflow-hidden">
+                        <img 
+                          src={adminSettings?.profileImage || "/logo.png"} 
+                          alt="AGARAM DHINES ONLINE ACADEMY" 
+                          crossOrigin="anonymous"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = "/logo.png";
+                          }}
+                          className="w-full h-full object-cover rounded-full" 
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="text-xs font-black uppercase tracking-wider text-white leading-tight drop-shadow-xs truncate">
+                          {adminSettings?.instituteName || "AGARAM DHINES ONLINE ACADEMY"}
+                        </h3>
+                        <p className="text-[10px] font-extrabold text-amber-200 leading-tight drop-shadow-xs truncate">
+                          அகரம் தினேஷ் ஆன்லைன் அகாடமி
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[9px] font-black bg-amber-400 text-indigo-950 px-2 py-0.5 rounded shadow-xs uppercase tracking-wider">
+                        OFFICIAL ID
+                      </span>
+                      <span className="text-[10px] font-extrabold text-sky-100 block mt-0.5 whitespace-nowrap">
+                        📞 778054232
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Student Main Info Row */}
+                  <div className="flex items-center gap-3 my-1 z-10">
+                    <div className="w-13 h-13 rounded-full border-2 border-white/90 overflow-hidden shrink-0 bg-white/20 flex items-center justify-center shadow-md">
+                      {docModal.student.image ? (
+                        <img src={docModal.student.image} alt={docModal.student.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <User size={26} className="text-white" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-base font-extrabold text-white truncate leading-tight drop-shadow-xs">
+                        {docModal.student.name}
+                      </h2>
+                      <div className="flex items-center gap-3 text-xs text-sky-100 mt-0.5">
+                        <span>Grade: <strong className="text-amber-200">{docModal.student.grade}</strong></span>
+                        <span className="text-white/40">•</span>
+                        <span>Roll No: <strong className="text-white">{docModal.student.rollNo || 'N/A'}</strong></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Enrolled Subjects List - Colorful Badges */}
+                  <div className="z-10 bg-black/20 backdrop-blur-xs p-1.5 rounded-md border border-white/15">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-sky-200 block mb-1">
+                      Subjects / பாடங்கள்:
+                    </span>
+                    <div className="flex flex-wrap gap-1.5 max-h-[38px] overflow-hidden">
+                      {(() => {
+                        const subs = docModal.student.subjects || docModal.student.enrolledClasses;
+                        const badgeColors = [
+                          'bg-amber-400 text-indigo-950',
+                          'bg-emerald-400 text-indigo-950',
+                          'bg-sky-300 text-indigo-950',
+                          'bg-pink-300 text-indigo-950',
+                          'bg-purple-300 text-indigo-950',
+                          'bg-yellow-300 text-indigo-950',
+                        ];
+                        if (Array.isArray(subs) && subs.length > 0) {
+                          return subs.map((s: string, idx: number) => (
+                            <span 
+                              key={idx} 
+                              className={`text-[9.5px] font-black px-2 py-0.5 rounded shadow-xs whitespace-nowrap ${badgeColors[idx % badgeColors.length]}`}
+                            >
+                              {s}
+                            </span>
+                          ));
+                        }
+                        return (
+                          <span className="text-[9.5px] font-bold px-2 py-0.5 rounded bg-amber-400 text-indigo-950">
+                            All Registered Courses
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Footer Credentials & QR Code */}
+                  <div className="flex items-end justify-between gap-2 mt-1 z-10">
+                    <div className="bg-black/25 backdrop-blur-xs px-2 py-1 rounded border border-white/20 text-[10px] font-mono leading-tight flex-1">
+                      <p className="text-white/80 flex justify-between"><span>User:</span> <span className="text-white font-bold">{docModal.student.username}</span></p>
+                      <p className="text-white/80 flex justify-between"><span>Pass:</span> <span className="text-amber-200 font-bold">{docModal.student.password}</span></p>
+                    </div>
+                    <div className="bg-white p-1 rounded shrink-0 shadow-md">
+                      <QRCodeSVG value={docModal.student.id} size={42} level="H" includeMargin={false} />
+                    </div>
+                  </div>
+                </div>
+              ) : docModal.type === 'certificate' ? (
+                /* Certificate Template */
+                <div className="w-[800px] h-[565px] bg-gradient-to-br from-amber-50/60 via-white to-indigo-50/40 p-6 relative overflow-hidden flex flex-col justify-between items-center text-center shadow-2xl">
+                  {/* Ornate Gold & Royal Blue Borders */}
+                  <div className="absolute inset-2 border-[3px] border-indigo-900 rounded-sm pointer-events-none"></div>
+                  <div className="absolute inset-3 border border-amber-500 rounded-xs pointer-events-none"></div>
+                  
+                  {/* Header with Academy Branding */}
+                  <div className="flex flex-col items-center z-10 pt-2">
+                    <div className="w-16 h-16 bg-white rounded-full p-1 shadow-md border-2 border-amber-400 mb-1 flex items-center justify-center overflow-hidden">
+                      <img 
+                        src={adminSettings?.profileImage || "/logo.png"} 
+                        alt="AGARAM DHINES ONLINE ACADEMY" 
+                        crossOrigin="anonymous"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = "/logo.png";
+                        }}
+                        className="w-full h-full object-cover rounded-full" 
+                      />
+                    </div>
+                    <h3 className="text-sm font-extrabold tracking-widest text-indigo-950 uppercase font-serif">
+                      {adminSettings?.instituteName || "AGARAM DHINES ONLINE ACADEMY"}
+                    </h3>
+                    <p className="text-xs font-semibold text-amber-700 tracking-wide">
+                      அகரம் தினேஷ் ஆன்லைன் அகாடமி
+                    </p>
+                    <div className="w-48 h-0.5 bg-gradient-to-r from-transparent via-amber-500 to-transparent my-1"></div>
+                    <h1 className="text-2xl font-black text-indigo-900 uppercase tracking-widest font-serif mt-1">
+                      Certificate of Completion
+                    </h1>
+                    <p className="text-xs text-gray-500 uppercase tracking-wider font-medium">சான்றிதழ்</p>
+                  </div>
+
+                  {/* Body Content */}
+                  <div className="max-w-xl my-auto z-10 space-y-2">
+                    <p className="text-xs text-gray-600 font-serif italic">This is proudly presented to / இச்சான்றிதழ் பெருமையுடன் வழங்கப்படுகிறது</p>
+                    
+                    <h2 className="text-3xl font-extrabold text-indigo-950 tracking-wide font-serif border-b-2 border-amber-400 pb-1 inline-block px-8">
+                      {docModal.student.name}
+                    </h2>
+                    
+                    <p className="text-xs text-gray-700 leading-relaxed font-serif pt-1">
+                      has successfully enrolled and actively participated in the academic curriculum for <br />
+                      <strong className="text-indigo-900 text-sm">{docModal.student.grade}</strong> under Registration ID: <strong className="text-indigo-900">{docModal.student.id}</strong>
+                    </p>
+                  </div>
+
+                  {/* Footer with Signatures, Seal & Student Credentials + QR */}
+                  <div className="flex justify-between items-end w-full mt-auto pt-2 px-4 z-10">
+                    {/* Date */}
+                    <div className="text-center w-32">
+                      <p className="font-bold text-gray-900 text-xs mb-0.5">{new Date().toLocaleDateString()}</p>
+                      <div className="w-full border-b border-indigo-900 mb-0.5"></div>
+                      <p className="font-bold text-indigo-900 text-[10px] uppercase tracking-widest">Date / தேதி</p>
+                    </div>
+
+                    {/* Center Stamp & Credentials Badge */}
+                    <div className="flex items-center gap-3 bg-white/90 px-3 py-1.5 rounded-xl border border-amber-300 shadow-sm backdrop-blur-sm">
+                      <div className="bg-white p-0.5 rounded border border-indigo-100 shadow-2xs">
+                        <QRCodeSVG value={docModal.student.id} size={48} level="H" includeMargin={false} />
+                      </div>
+                      <div className="text-left text-[10px] font-medium text-slate-800 space-y-0.5">
+                        <p><span className="font-bold text-indigo-900 w-12 inline-block">Roll No:</span> <strong>{docModal.student.rollNo || 'N/A'}</strong></p>
+                        <p><span className="font-bold text-indigo-900 w-12 inline-block">User:</span> <span className="font-mono font-bold text-indigo-700">{docModal.student.username}</span></p>
+                        <p><span className="font-bold text-indigo-900 w-12 inline-block">Pass:</span> <span className="font-mono font-bold text-amber-600">{docModal.student.password}</span></p>
+                      </div>
+                    </div>
+
+                    {/* Director Signature */}
+                    <div className="text-center w-32">
+                      <div className="font-serif italic text-base text-indigo-900 font-bold mb-0.5">Dhines Nivas</div>
+                      <div className="w-full border-b border-indigo-900 mb-0.5"></div>
+                      <p className="font-bold text-indigo-900 text-[10px] uppercase tracking-widest">Director / இயக்குனர்</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Details Template */
+                <div className="w-full max-w-2xl bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="bg-indigo-600 p-6 flex items-center gap-6">
+                    <div className="w-24 h-24 bg-white rounded-full p-1 shadow-md">
+                      {docModal.student.image ? (
+                        <img src={docModal.student.image} alt={docModal.student.name} className="w-full h-full object-cover rounded-full" />
+                      ) : (
+                        <div className="w-full h-full bg-gray-200 rounded-full flex items-center justify-center text-3xl font-bold text-gray-500">
+                          {docModal.student.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-white">
+                      <h2 className="text-2xl font-bold">{docModal.student.name}</h2>
+                      <p className="opacity-90">{docModal.student.grade}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <h4 className="font-bold text-gray-900 border-b pb-1 text-sm uppercase tracking-wider text-indigo-600">Personal Info</h4>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <span className="text-gray-500 font-medium">Roll No:</span>
+                        <span className="text-gray-900 font-bold">{docModal.student.rollNo || 'N/A'}</span>
+                        
+                        <span className="text-gray-500 font-medium">Date of Birth:</span>
+                        <span className="text-gray-900">{docModal.student.dob || 'N/A'}</span>
+                        
+                        <span className="text-gray-500 font-medium">Gender:</span>
+                        <span className="text-gray-900 capitalize">{docModal.student.gender || 'N/A'}</span>
+                        
+                        <span className="text-gray-500 font-medium">Admission Date:</span>
+                        <span className="text-gray-900">{docModal.student.admissionDate || 'N/A'}</span>
+
+                        <span className="text-gray-500 font-medium">System ID:</span>
+                        <span className="text-gray-900 font-mono text-xs">{docModal.student.id}</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h4 className="font-bold text-gray-900 border-b pb-1 text-sm uppercase tracking-wider text-indigo-600">Contact & Portal Info</h4>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <span className="text-gray-500 font-medium">Username:</span>
+                        <span className="text-gray-900 font-mono font-bold text-indigo-600">{docModal.student.username}</span>
+
+                        <span className="text-gray-500 font-medium">Password PIN:</span>
+                        <span className="text-gray-900 font-mono font-bold text-amber-600">{docModal.student.password}</span>
+
+                        <span className="text-gray-500 font-medium">Contact Phone:</span>
+                        <span className="text-gray-900 font-bold">{docModal.student.phone || 'N/A'}</span>
+
+                        <span className="text-gray-500 font-medium">Guardian Name:</span>
+                        <span className="text-gray-900">{docModal.student.guardianName || 'N/A'}</span>
+                        
+                        <span className="text-gray-500 font-medium">Address:</span>
+                        <span className="text-gray-900">{docModal.student.address || 'N/A'}</span>
+                      </div>
+                    </div>
+
+                    <div className="col-span-1 md:col-span-2 space-y-2">
+                      <h4 className="font-bold text-gray-900 border-b pb-1 text-sm uppercase tracking-wider text-indigo-600">Subjects</h4>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {docModal.student.subjects && docModal.student.subjects.length > 0 ? (
+                            docModal.student.subjects.map((sub: string, i: number) => (
+                              <span key={i} className="px-2 py-1 bg-indigo-50 text-indigo-700 rounded-md text-xs font-semibold border border-indigo-100">
+                                {sub}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-gray-400 italic">No subjects assigned.</span>
+                          )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (view === "menu") {
@@ -1249,6 +1606,7 @@ ${portalUrl}
             </div>
           )}
         </div>
+        {renderDocumentModal()}
       </div>
     );
   }
@@ -2049,6 +2407,7 @@ ${portalUrl}
             </div>
           </div>
         </form>
+        {renderDocumentModal()}
       </div>
     );
   }
@@ -2488,327 +2847,7 @@ ${portalUrl}
         </div>
 
         {/* Document Modal */}
-        {docModal.type && docModal.student && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto flex flex-col">
-              <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
-                <h3 className="font-bold text-gray-800 capitalize">
-                  {docModal.type === 'idcard' ? 'Student ID Card' : docModal.type === 'certificate' ? 'Course Certificate' : 'Student Details'}
-                </h3>
-                <div className="flex gap-2 items-center flex-wrap">
-                  {(docModal.type === 'idcard' || docModal.type === 'certificate') && (
-                    <>
-                      <button 
-                        onClick={handleCopyDocImage} 
-                        className={`flex items-center gap-1.5 px-3 py-2 text-white rounded-lg transition-all text-xs font-semibold cursor-pointer
-                          ${copiedIdAdmin ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-800 hover:bg-slate-900'}`}
-                      >
-                        {copiedIdAdmin ? (
-                          <>
-                            <Check size={14} /> Copied! (நகலெடுக்கப்பட்டது)
-                          </>
-                        ) : (
-                          <>
-                            <Copy size={14} /> Copy Image (படமாக நகலெடு)
-                          </>
-                        )}
-                      </button>
-                      <button onClick={() => handleDownloadDoc('png')} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-xs font-semibold cursor-pointer shadow-sm">
-                        <Download size={14} /> PNG (பதிவிறக்கு)
-                      </button>
-                      <button onClick={() => handleDownloadDoc('pdf')} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-xs font-semibold cursor-pointer shadow-sm">
-                        <FileText size={14} /> PDF
-                      </button>
-                    </>
-                  )}
-                  <button onClick={handlePrint} className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-xs font-semibold cursor-pointer shadow-sm">
-                    <Printer size={14} /> Print
-                  </button>
-                  <button onClick={() => setDocModal({ type: null, student: null })} className="p-2 text-gray-500 hover:bg-gray-200 rounded-lg transition-colors">
-                    <X size={18} />
-                  </button>
-                </div>
-              </div>
-              
-              <div className="p-8 flex justify-center bg-gray-100 flex-1 overflow-auto">
-                <div ref={printRef} className="bg-white shadow-lg">
-                  {docModal.type === 'idcard' ? (
-                    /* ID Card Template */
-                    <div className="w-[480px] h-[300px] bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 rounded-2xl p-4 relative overflow-hidden text-white shadow-2xl shrink-0 flex flex-col justify-between">
-                      {/* Subtle background glow accents */}
-                      <div className="absolute top-0 right-0 w-36 h-36 bg-white/10 rounded-full blur-xl pointer-events-none"></div>
-                      <div className="absolute bottom-0 left-0 w-32 h-32 bg-sky-400/20 rounded-full blur-xl pointer-events-none"></div>
-
-                      {/* Top Header Row */}
-                      <div className="flex items-center justify-between gap-2 border-b border-white/20 pb-2 z-10">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="w-12 h-12 bg-white rounded-full p-0.5 shadow-md border border-amber-300 shrink-0 flex items-center justify-center overflow-hidden">
-                            <img 
-                              src={adminSettings?.profileImage || "/logo.png"} 
-                              alt="AGARAM DHINES ONLINE ACADEMY" 
-                              crossOrigin="anonymous"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = "/logo.png";
-                              }}
-                              className="w-full h-full object-cover rounded-full" 
-                            />
-                          </div>
-                          <div className="min-w-0">
-                            <h3 className="text-xs font-black uppercase tracking-wider text-white leading-tight drop-shadow-xs truncate">
-                              {adminSettings?.instituteName || "AGARAM DHINES ONLINE ACADEMY"}
-                            </h3>
-                            <p className="text-[10px] font-extrabold text-amber-200 leading-tight drop-shadow-xs truncate">
-                              அகரம் தினேஷ் ஆன்லைன் அகாடமி
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <span className="text-[9px] font-black bg-amber-400 text-indigo-950 px-2 py-0.5 rounded shadow-xs uppercase tracking-wider">
-                            OFFICIAL ID
-                          </span>
-                          <span className="text-[10px] font-extrabold text-sky-100 block mt-0.5 whitespace-nowrap">
-                            📞 778054232
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Student Main Info Row */}
-                      <div className="flex items-center gap-3 my-1 z-10">
-                        <div className="w-13 h-13 rounded-full border-2 border-white/90 overflow-hidden shrink-0 bg-white/20 flex items-center justify-center shadow-md">
-                          {docModal.student.image ? (
-                            <img src={docModal.student.image} alt={docModal.student.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <User size={26} className="text-white" />
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <h2 className="text-base font-extrabold text-white truncate leading-tight drop-shadow-xs">
-                            {docModal.student.name}
-                          </h2>
-                          <div className="flex items-center gap-3 text-xs text-sky-100 mt-0.5">
-                            <span>Grade: <strong className="text-amber-200">{docModal.student.grade}</strong></span>
-                            <span className="text-white/40">•</span>
-                            <span>Roll No: <strong className="text-white">{docModal.student.rollNo || 'N/A'}</strong></span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Enrolled Subjects List - Colorful Badges */}
-                      <div className="z-10 bg-black/20 backdrop-blur-xs p-1.5 rounded-md border border-white/15">
-                        <span className="text-[9px] font-black uppercase tracking-wider text-sky-200 block mb-1">
-                          Subjects / பாடங்கள்:
-                        </span>
-                        <div className="flex flex-wrap gap-1.5 max-h-[38px] overflow-hidden">
-                          {(() => {
-                            const subs = docModal.student.subjects || docModal.student.enrolledClasses;
-                            const badgeColors = [
-                              'bg-amber-400 text-indigo-950',
-                              'bg-emerald-400 text-indigo-950',
-                              'bg-sky-300 text-indigo-950',
-                              'bg-pink-300 text-indigo-950',
-                              'bg-purple-300 text-indigo-950',
-                              'bg-yellow-300 text-indigo-950',
-                            ];
-                            if (Array.isArray(subs) && subs.length > 0) {
-                              return subs.map((s: string, idx: number) => (
-                                <span 
-                                  key={idx} 
-                                  className={`text-[9.5px] font-black px-2 py-0.5 rounded shadow-xs whitespace-nowrap ${badgeColors[idx % badgeColors.length]}`}
-                                >
-                                  {s}
-                                </span>
-                              ));
-                            }
-                            return (
-                              <span className="text-[9.5px] font-bold px-2 py-0.5 rounded bg-amber-400 text-indigo-950">
-                                All Registered Courses
-                              </span>
-                            );
-                          })()}
-                        </div>
-                      </div>
-
-                      {/* Footer Credentials & QR Code */}
-                      <div className="flex items-end justify-between gap-2 mt-1 z-10">
-                        <div className="bg-black/25 backdrop-blur-xs px-2 py-1 rounded border border-white/20 text-[10px] font-mono leading-tight flex-1">
-                          <p className="text-white/80 flex justify-between"><span>User:</span> <span className="text-white font-bold">{docModal.student.username}</span></p>
-                          <p className="text-white/80 flex justify-between"><span>Pass:</span> <span className="text-amber-200 font-bold">{docModal.student.password}</span></p>
-                        </div>
-                        <div className="bg-white p-1 rounded shrink-0 shadow-md">
-                          <QRCodeSVG value={docModal.student.id} size={42} level="H" includeMargin={false} />
-                        </div>
-                      </div>
-                    </div>
-                  ) : docModal.type === 'certificate' ? (
-                    /* Certificate Template */
-                    <div className="w-[800px] h-[565px] bg-gradient-to-br from-amber-50/60 via-white to-indigo-50/40 p-6 relative overflow-hidden flex flex-col justify-between items-center text-center shadow-2xl">
-                      {/* Ornate Gold & Royal Blue Borders */}
-                      <div className="absolute inset-3 border-[8px] border-double border-indigo-900 rounded-2xl pointer-events-none"></div>
-                      <div className="absolute inset-5 border border-amber-400/80 rounded-xl pointer-events-none"></div>
-                      
-                      {/* Ornate Corner Accents */}
-                      <div className="absolute top-4 left-4 w-10 h-10 border-t-4 border-l-4 border-amber-500 pointer-events-none"></div>
-                      <div className="absolute top-4 right-4 w-10 h-10 border-t-4 border-r-4 border-amber-500 pointer-events-none"></div>
-                      <div className="absolute bottom-4 left-4 w-10 h-10 border-b-4 border-l-4 border-amber-500 pointer-events-none"></div>
-                      <div className="absolute bottom-4 right-4 w-10 h-10 border-b-4 border-r-4 border-amber-500 pointer-events-none"></div>
-
-                      <div className="relative z-10 w-full h-full flex flex-col items-center justify-between py-2 px-6">
-                        {/* Top Academy Logo & Branding Header */}
-                        <div className="flex flex-col items-center">
-                          <div className="w-14 h-14 bg-white rounded-full p-0.5 shadow-md border-2 border-amber-400 mb-1 overflow-hidden flex items-center justify-center">
-                            <img 
-                              src={adminSettings?.profileImage || "/logo.png"} 
-                              alt="AGARAM DHINES ONLINE ACADEMY" 
-                              crossOrigin="anonymous"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = "/logo.png";
-                              }}
-                              className="w-full h-full object-cover rounded-full" 
-                            />
-                          </div>
-                          <h3 className="text-lg font-black uppercase tracking-wider text-indigo-950 leading-tight">
-                            {adminSettings?.instituteName || "AGARAM DHINES ONLINE ACADEMY"}
-                          </h3>
-                          <p className="text-xs font-extrabold text-amber-600 tracking-wide mt-0.5">
-                            அகரம் தினேஷ் ஆன்லைன் அகாடமி <span className="text-indigo-800 text-[11px] ml-1 font-bold">| 📞 778054232</span>
-                          </p>
-                        </div>
-
-                        {/* Certificate Main Title */}
-                        <div>
-                          <h1 className="text-3xl font-serif font-black text-indigo-900 tracking-wide uppercase drop-shadow-xs">
-                            Certificate of Excellence
-                          </h1>
-                          <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.25em]">
-                            Official Academic Award
-                          </p>
-                        </div>
-
-                        {/* Presentation Line & Name */}
-                        <div className="w-full">
-                          <p className="text-xs text-gray-500 font-medium tracking-widest uppercase mb-0.5">
-                            This is proudly presented to
-                          </p>
-                          <h2 className="text-2xl font-extrabold text-indigo-950 border-b-2 border-amber-400 pb-1 px-8 inline-block font-serif drop-shadow-xs">
-                            {docModal.student.name}
-                          </h2>
-                        </div>
-
-                        {/* Citation */}
-                        <p className="text-sm text-gray-700 max-w-xl leading-relaxed font-serif my-1">
-                          For outstanding academic performance, dedication, and active participation in <span className="font-bold text-indigo-900">Grade {docModal.student.grade}</span> at AGARAM DHINES ONLINE ACADEMY.
-                        </p>
-
-                        {/* Footer with Signatures, Seal & Student Credentials + QR */}
-                        <div className="flex justify-between items-end w-full mt-auto pt-2 px-4">
-                          {/* Date */}
-                          <div className="text-center w-32">
-                            <p className="font-bold text-gray-900 text-xs mb-0.5">{new Date().toLocaleDateString()}</p>
-                            <div className="w-full border-b border-indigo-900 mb-0.5"></div>
-                            <p className="font-bold text-indigo-900 text-[10px] uppercase tracking-widest">Date / தேதி</p>
-                          </div>
-
-                          {/* Center Stamp & Credentials Badge */}
-                          <div className="flex items-center gap-3 bg-white/90 px-3 py-1.5 rounded-xl border border-amber-300 shadow-sm backdrop-blur-sm">
-                            <div className="bg-white p-0.5 rounded border border-indigo-100 shadow-2xs">
-                              <QRCodeSVG value={docModal.student.id} size={48} level="H" includeMargin={false} />
-                            </div>
-                            <div className="text-left text-[10px] font-medium text-slate-800 space-y-0.5">
-                              <p><span className="font-bold text-indigo-900 w-12 inline-block">Roll No:</span> <strong>{docModal.student.rollNo || 'N/A'}</strong></p>
-                              <p><span className="font-bold text-indigo-900 w-12 inline-block">User:</span> <span className="font-mono font-bold text-indigo-700">{docModal.student.username}</span></p>
-                              <p><span className="font-bold text-indigo-900 w-12 inline-block">Pass:</span> <span className="font-mono font-bold text-amber-600">{docModal.student.password}</span></p>
-                            </div>
-                          </div>
-
-                          {/* Director Signature */}
-                          <div className="text-center w-32">
-                            <div className="font-serif italic text-base text-indigo-900 font-bold mb-0.5">Dhines Nivas</div>
-                            <div className="w-full border-b border-indigo-900 mb-0.5"></div>
-                            <p className="font-bold text-indigo-900 text-[10px] uppercase tracking-widest">Director / இயக்குனர்</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    /* Details Template */
-                    <div className="w-full max-w-2xl bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                      <div className="bg-indigo-600 p-6 flex items-center gap-6">
-                        <div className="w-24 h-24 bg-white rounded-full p-1 shadow-md">
-                          {docModal.student.image ? (
-                            <img src={docModal.student.image} alt={docModal.student.name} className="w-full h-full object-cover rounded-full" />
-                          ) : (
-                            <div className="w-full h-full bg-gray-200 rounded-full flex items-center justify-center text-3xl font-bold text-gray-500">
-                              {docModal.student.name.charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                        </div>
-                        <div className="text-white">
-                          <h2 className="text-2xl font-bold">{docModal.student.name}</h2>
-                          <p className="opacity-90">{docModal.student.grade}</p>
-                        </div>
-                      </div>
-                      
-                      <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-4">
-                          <h4 className="font-bold text-gray-900 border-b pb-1 text-sm uppercase tracking-wider text-indigo-600">Personal Info</h4>
-                          <div className="grid grid-cols-2 gap-2 text-sm">
-                            <span className="text-gray-500 font-medium">Roll No:</span>
-                            <span className="text-gray-900 font-bold">{docModal.student.rollNo || 'N/A'}</span>
-                            
-                            <span className="text-gray-500 font-medium">Date of Birth:</span>
-                            <span className="text-gray-900">{docModal.student.dob || 'N/A'}</span>
-                            
-                            <span className="text-gray-500 font-medium">Gender:</span>
-                            <span className="text-gray-900 capitalize">{docModal.student.gender || 'N/A'}</span>
-                          </div>
-                        </div>
-                        
-                        <div className="space-y-4">
-                          <h4 className="font-bold text-gray-900 border-b pb-1 text-sm uppercase tracking-wider text-indigo-600">Account Details</h4>
-                          <div className="grid grid-cols-2 gap-2 text-sm">
-                            <span className="text-gray-500 font-medium">Username:</span>
-                            <span className="text-gray-900 font-mono font-bold">{docModal.student.username}</span>
-                            
-                            <span className="text-gray-500 font-medium">Password:</span>
-                            <span className="text-gray-900 font-mono font-bold">{docModal.student.password}</span>
-                            
-                            <span className="text-gray-500 font-medium">Guardian:</span>
-                            <span className="text-gray-900">{docModal.student.guardianName || 'N/A'}</span>
-                            
-                            <span className="text-gray-500 font-medium">Admission:</span>
-                            <span className="text-gray-900">{docModal.student.admissionDate || 'N/A'}</span>
-                          </div>
-                        </div>
-
-                        <div className="col-span-1 md:col-span-2 space-y-2">
-                          <h4 className="font-bold text-gray-900 border-b pb-1 text-sm uppercase tracking-wider text-indigo-600">Address</h4>
-                          <p className="text-sm text-gray-800 leading-relaxed bg-gray-50 p-3 rounded border border-gray-100 italic">
-                            {docModal.student.address || 'No address provided.'}
-                          </p>
-                        </div>
-
-                        <div className="col-span-1 md:col-span-2 space-y-2">
-                          <h4 className="font-bold text-gray-900 border-b pb-1 text-sm uppercase tracking-wider text-indigo-600">Subjects</h4>
-                          <div className="flex flex-wrap gap-2 pt-1">
-                            {docModal.student.subjects && docModal.student.subjects.length > 0 ? (
-                                docModal.student.subjects.map((sub: string, i: number) => (
-                                  <span key={i} className="px-2 py-1 bg-indigo-50 text-indigo-700 rounded-md text-xs font-semibold border border-indigo-100">
-                                    {sub}
-                                  </span>
-                                ))
-                              ) : (
-                                <span className="text-xs text-gray-400 italic">No subjects assigned.</span>
-                              )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {renderDocumentModal()}
 
       {showBulkSubjectModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
@@ -3205,6 +3244,7 @@ ${portalUrl}
           </div>
         ))}
       </div>
+      {renderDocumentModal()}
     </>
   );
 }

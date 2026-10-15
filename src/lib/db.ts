@@ -534,7 +534,7 @@ export const getHomePageContent = () => getData('homePageContent', {
   facebookUrl: "https://facebook.com",
   twitterUrl: "https://twitter.com",
   instagramUrl: "https://instagram.com",
-  playStoreUrl: "https://play.google.com",
+  playStoreUrl: "https://play.google.com/store/apps/details?id=com.agaram.dhines.online.academy&pcampaignid=web_share",
   appStoreUrl: "https://apple.com",
   contactPhone: "0778054232",
   contactWhatsapp: "94778054232",
