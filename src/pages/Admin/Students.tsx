@@ -130,9 +130,7 @@ export default function Students() {
       setCopiedIdAdmin(true);
       setTimeout(() => {
         setCopiedIdAdmin(false);
-        // Automatically close modal after copy as requested
-        setDocModal({ type: null, student: null });
-      }, 700);
+      }, 3000);
     } catch (error) {
       console.error("Error copying document image:", error);
       alert("Failed to copy image. Clipboard copy might be restricted in this browser session. Try downloading as PNG instead. (படம் நகலெடுக்க முடியவில்லை, PNG-ஆக பதிவிறக்கவும்.)");
@@ -1085,8 +1083,7 @@ ${playStoreUrl}
                       setCopiedTextToast(true);
                       setTimeout(() => {
                         setCopiedTextToast(false);
-                        setDocModal({ type: null, student: null });
-                      }, 700);
+                      }, 3000);
                     }}
                     className={`flex items-center gap-1.5 px-3 py-2 text-white rounded-lg transition-all text-xs font-semibold cursor-pointer ${copiedTextToast ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-emerald-700 hover:bg-emerald-800'}`}
                     title="Copy WhatsApp Login Details"
@@ -1105,8 +1102,14 @@ ${playStoreUrl}
               <button onClick={handlePrint} className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-xs font-semibold cursor-pointer shadow-sm">
                 <Printer size={14} /> Print
               </button>
-              <button onClick={() => setDocModal({ type: null, student: null })} className="p-2 text-gray-500 hover:bg-gray-200 rounded-lg transition-colors">
-                <X size={18} />
+              <button 
+                type="button"
+                onClick={() => setDocModal({ type: null, student: null })} 
+                className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-700 hover:bg-rose-100 hover:text-rose-800 border border-rose-200 rounded-lg transition-colors text-xs font-bold cursor-pointer shadow-xs ml-1"
+                title="Close (மூடு)"
+              >
+                <X size={16} />
+                <span>மூடு (Close)</span>
               </button>
             </div>
           </div>
@@ -1374,6 +1377,21 @@ ${playStoreUrl}
                 </div>
               )}
             </div>
+          </div>
+          
+          {/* Modal Footer with explicit Close button */}
+          <div className="p-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between px-6 rounded-b-2xl">
+            <span className="text-xs text-gray-500 font-medium">
+              💡 தேவையான விபரங்களை (ID கார்டு / WhatsApp தகவல்) நகலெடுத்த பிறகு &apos;மூடு&apos; பொத்தானை அழுத்தி மூடலாம்.
+            </span>
+            <button
+              type="button"
+              onClick={() => setDocModal({ type: null, student: null })}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-xs"
+            >
+              <X size={14} />
+              <span>மூடு (Close)</span>
+            </button>
           </div>
         </div>
       </div>
