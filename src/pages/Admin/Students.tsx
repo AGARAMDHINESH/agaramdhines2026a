@@ -37,9 +37,6 @@ export default function Students() {
   const [copiedTextToast, setCopiedTextToast] = useState(false);
   const [downloadingLiveCard, setDownloadingLiveCard] = useState(false);
   const [copyingLiveCard, setCopyingLiveCard] = useState(false);
-  const [copyingWhatsAppDoc, setCopyingWhatsAppDoc] = useState(false);
-  const [copiedCombinedToast, setCopiedCombinedToast] = useState(false);
-  const [copyingLiveCardWhatsApp, setCopyingLiveCardWhatsApp] = useState(false);
 
   const checkStudentMatchesSearch = (s: any, queryStr: string) => {
     if (!queryStr || !queryStr.trim()) return true;
@@ -140,140 +137,62 @@ export default function Students() {
     }
   };
 
-  const handleCopyDocWhatsAppCombined = async () => {
+  const handleCopyDocWhatsApp = async () => {
     if (!docModal.student) return;
-    const element = printRef.current;
     
-    const portalUrl = window.location.origin;
     const playStoreUrl = "https://play.google.com/store/apps/details?id=com.agaram.dhines.online.academy&pcampaignid=web_share";
+    const portalUrl = "https://app-agaramdhines-lk.vercel.app/";
+    const videoInstallUrl = "https://youtu.be/djMbsJy4SAY";
+    const videoZoomUrl = "https://youtu.be/_n3HfXIpbKk";
+
     const msg = `🎓 *அகரம் தினேஷ் ஆன்லைன் அகாடமி*
-🆔 *மாணவர் சேர்க்கை விபரம் (Student ID & Login Details)*
+*AGARAM DHINES ONLINE ACADEMY*
+━━━━━━━━━━━━━━━━━━━━━
+📢 *மாணவர் சேர்க்கை & உள்நுழைவு விபரம் (Login Credentials)*
 
-👤 *பெயர்:* ${docModal.student.name}
-📚 *தரம்:* ${docModal.student.grade || 'N/A'}
-🆔 *பதிவு எண் (Roll No):* ${docModal.student.rollNo || 'N/A'}
+👤 *பெயர் (Name):* ${docModal.student.name}
+🏫 *வகுப்பு (Grade):* ${docModal.student.grade || 'N/A'}
+🔢 *பதிவு எண் (Roll No):* ${docModal.student.rollNo || 'N/A'}
 
-🔑 *User Name:* ${docModal.student.username}
-🔒 *Password (PIN):* ${docModal.student.password}
+🔐 *உள்நுழைவு விபரம் (Login Info):*
+• *Username:* ${docModal.student.username}
+• *Password/PIN:* ${docModal.student.password}
+━━━━━━━━━━━━━━━━━━━━━
+📢 *மாணவர்களுக்கான முக்கிய அறிவிப்பு!*
 
-📲 *Play Store App Link (செயலி இணைப்பு):*
+📲 *Agaram Dhines Online Academy App-ஐ அனைவரும் Install செய்து Login செய்து கொள்ளவும்.*
+
+🤖 *Android App:*
 ${playStoreUrl}
 
-🌐 *Portal Link:* ${portalUrl}/student/login
+🍎 *iPhone:*
+${portalUrl}
+
+🖥️ *Computer Web:*
+${portalUrl}
+
+🎥 *App Install & Login செய்வது எப்படி?*
+${videoInstallUrl}
+
+🛄 *Zoom Link எவ்வாறு பெறுவது?*
+${videoZoomUrl}
+
+📚 *Recorded Videos | PDFs | Zoom Links | கட்டண விபரங்கள் அனைத்தையும் App மூலம் பெற்றுக்கொள்ளலாம்.*
+
+🙏 *அனைத்து மாணவர்களும் தவறாமல் App-ஐ Install செய்து பயன்படுத்தவும்.*
 
 📞 *தொடர்புகளுக்கு:* 778054232
 
-நன்றி!`;
+🌟 *Agaram Dhines Online Academy*`;
 
     try {
-      setCopyingWhatsAppDoc(true);
-      let blob: Blob | null = null;
-      if (element) {
-        const imgData = await toPng(element, { pixelRatio: 3, backgroundColor: 'transparent' });
-        const res = await fetch(imgData);
-        blob = await res.blob();
-      }
-
-      const textBlob = new Blob([msg], { type: 'text/plain' });
-
-      let success = false;
-      if (blob && navigator.clipboard && (window as any).ClipboardItem) {
-        try {
-          // Write BOTH image and text simultaneously to system clipboard
-          await navigator.clipboard.write([
-            new (window as any).ClipboardItem({
-              'image/png': blob,
-              'text/plain': textBlob
-            })
-          ]);
-          success = true;
-        } catch (multiErr) {
-          console.warn("Multi-type ClipboardItem failed, trying image then text fallback:", multiErr);
-          try {
-            await navigator.clipboard.write([
-              new (window as any).ClipboardItem({ 'image/png': blob })
-            ]);
-            success = true;
-          } catch (_) {
-            await navigator.clipboard.writeText(msg);
-            success = true;
-          }
-        }
-      } else {
-        await navigator.clipboard.writeText(msg);
-        success = true;
-      }
-
-      setCopiedCombinedToast(true);
+      await navigator.clipboard.writeText(msg);
       setCopiedTextToast(true);
-      setCopiedIdAdmin(true);
       setTimeout(() => {
-        setCopiedCombinedToast(false);
         setCopiedTextToast(false);
-        setCopiedIdAdmin(false);
-      }, 4000);
+      }, 3000);
     } catch (error) {
-      console.error("Error in handleCopyDocWhatsAppCombined:", error);
-      try {
-        await navigator.clipboard.writeText(msg);
-        setCopiedTextToast(true);
-        setTimeout(() => setCopiedTextToast(false), 3000);
-      } catch (_) {
-        alert("விபரத்தை நகலெடுப்பதில் பிழை ஏற்பட்டது. தயவுசெய்து மீண்டும் முயற்சிக்கவும்.");
-      }
-    } finally {
-      setCopyingWhatsAppDoc(false);
-    }
-  };
-
-  const handleShareDocWhatsAppDirect = async () => {
-    if (!docModal.student) return;
-    const element = printRef.current;
-    
-    const portalUrl = window.location.origin;
-    const playStoreUrl = "https://play.google.com/store/apps/details?id=com.agaram.dhines.online.academy&pcampaignid=web_share";
-    const msg = `🎓 *அகரம் தினேஷ் ஆன்லைன் அகாடமி*
-🆔 *மாணவர் சேர்க்கை விபரம் (Student ID & Login Details)*
-
-👤 *பெயர்:* ${docModal.student.name}
-📚 *தரம்:* ${docModal.student.grade || 'N/A'}
-🆔 *பதிவு எண் (Roll No):* ${docModal.student.rollNo || 'N/A'}
-
-🔑 *User Name:* ${docModal.student.username}
-🔒 *Password (PIN):* ${docModal.student.password}
-
-📲 *Play Store App Link (செயலி இணைப்பு):*
-${playStoreUrl}
-
-🌐 *Portal Link:* ${portalUrl}/student/login
-
-📞 *தொடர்புகளுக்கு:* 778054232
-
-நன்றி!`;
-
-    try {
-      if (element && typeof navigator !== 'undefined' && navigator.canShare) {
-        const imgData = await toPng(element, { pixelRatio: 3, backgroundColor: 'transparent' });
-        const res = await fetch(imgData);
-        const blob = await res.blob();
-        const safeName = (docModal.student.name || "Student").trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
-        const file = new File([blob], `${safeName}-ID-Card.png`, { type: 'image/png' });
-
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            title: `ID Card - ${docModal.student.name}`,
-            text: msg,
-            files: [file]
-          });
-          return;
-        }
-      }
-      await handleCopyDocWhatsAppCombined();
-    } catch (err: any) {
-      if (err?.name !== 'AbortError') {
-        console.error("Direct share error:", err);
-        await handleCopyDocWhatsAppCombined();
-      }
+      console.error("Error copying WhatsApp text:", error);
     }
   };
 
@@ -1137,79 +1056,58 @@ ${playStoreUrl}
   };
 
   const handleCopyLiveCardText = async () => {
-    const portalUrl = window.location.origin;
     const playStoreUrl = "https://play.google.com/store/apps/details?id=com.agaram.dhines.online.academy&pcampaignid=web_share";
-    const subsText = formData.subjects.length > 0 ? formData.subjects.join(", ") : "அனைத்துப் பாடங்கள்";
-    const message = `🎓 *AGARAM DHINES ONLINE ACADEMY*
-🆔 *மாணவர் அடையாள அட்டை விபரம் (Student ID Card)*
+    const portalUrl = "https://app-agaramdhines-lk.vercel.app/";
+    const videoInstallUrl = "https://youtu.be/djMbsJy4SAY";
+    const videoZoomUrl = "https://youtu.be/_n3HfXIpbKk";
+    const subsText = formData.subjects.length > 0 ? formData.subjects.join(", ") : "";
+
+    const message = `🎓 *அகரம் தினேஷ் ஆன்லைன் அகாடமி*
+*AGARAM DHINES ONLINE ACADEMY*
+━━━━━━━━━━━━━━━━━━━━━
+📢 *மாணவர் சேர்க்கை & உள்நுழைவு விபரம் (Login Credentials)*
 
 👤 *பெயர் (Name):* ${formData.name || "-"}
 🏫 *வகுப்பு (Grade):* ${formData.grade || "-"}
 🔢 *பதிவு எண் (Roll No):* ${formData.rollNo || "-"}
-📚 *பாடங்கள் (Subjects):* ${subsText}
-
-🔐 *உள்நுழைவு விபரம் (Login Credentials):*
+${subsText ? `📚 *பாடங்கள் (Subjects):* ${subsText}\n` : ""}
+🔐 *உள்நுழைவு விபரம் (Login Info):*
 • *Username:* ${formData.username || "-"}
 • *Password/PIN:* ${formData.password || "-"}
+━━━━━━━━━━━━━━━━━━━━━
+📢 *மாணவர்களுக்கான முக்கிய அறிவிப்பு!*
 
-📲 *Play Store App Link (செயலி இணைப்பு):*
+📲 *Agaram Dhines Online Academy App-ஐ அனைவரும் Install செய்து Login செய்து கொள்ளவும்.*
+
+🤖 *Android App:*
 ${playStoreUrl}
 
-🌐 *வலைத்தள முகவரி (Login Portal):*
+🍎 *iPhone:*
 ${portalUrl}
 
-📞 *தொடர்புகளுக்கு:* 778054232`;
+🖥️ *Computer Web:*
+${portalUrl}
+
+🎥 *App Install & Login செய்வது எப்படி?*
+${videoInstallUrl}
+
+🛄 *Zoom Link எவ்வாறு பெறுவது?*
+${videoZoomUrl}
+
+📚 *Recorded Videos | PDFs | Zoom Links | கட்டண விபரங்கள் அனைத்தையும் App மூலம் பெற்றுக்கொள்ளலாம்.*
+
+🙏 *அனைத்து மாணவர்களும் தவறாமல் App-ஐ Install செய்து பயன்படுத்தவும்.*
+
+📞 *தொடர்புகளுக்கு:* 778054232
+
+🌟 *Agaram Dhines Online Academy*`;
 
     try {
-      setCopyingLiveCardWhatsApp(true);
-      let blob: Blob | null = null;
-      if (liveCardRef.current) {
-        const dataUrl = await toPng(liveCardRef.current, { pixelRatio: 3, cacheBust: true });
-        const res = await fetch(dataUrl);
-        blob = await res.blob();
-      }
-
-      const textBlob = new Blob([message], { type: 'text/plain' });
-
-      if (blob && navigator.clipboard && (window as any).ClipboardItem) {
-        try {
-          // Write both image and text to clipboard simultaneously
-          await navigator.clipboard.write([
-            new (window as any).ClipboardItem({
-              'image/png': blob,
-              'text/plain': textBlob
-            })
-          ]);
-        } catch (multiErr) {
-          try {
-            await navigator.clipboard.write([
-              new (window as any).ClipboardItem({ 'image/png': blob })
-            ]);
-          } catch (_) {
-            await navigator.clipboard.writeText(message);
-          }
-        }
-      } else {
-        await navigator.clipboard.writeText(message);
-      }
-
-      setCopiedCombinedToast(true);
+      await navigator.clipboard.writeText(message);
       setCopiedTextToast(true);
-      setCopiedImageToast(true);
-      setTimeout(() => {
-        setCopiedCombinedToast(false);
-        setCopiedTextToast(false);
-        setCopiedImageToast(false);
-      }, 3500);
+      setTimeout(() => setCopiedTextToast(false), 3500);
     } catch (error) {
-      console.error("Error copying live ID card text & image:", error);
-      try {
-        await navigator.clipboard.writeText(message);
-        setCopiedTextToast(true);
-        setTimeout(() => setCopiedTextToast(false), 3500);
-      } catch (_) {}
-    } finally {
-      setCopyingLiveCardWhatsApp(false);
+      console.error("Error copying live ID card text:", error);
     }
   };
 
@@ -1243,34 +1141,13 @@ ${portalUrl}
                   </button>
                   <button 
                     type="button"
-                    onClick={handleCopyDocWhatsAppCombined}
-                    disabled={copyingWhatsAppDoc}
-                    className={`flex items-center gap-1.5 px-3.5 py-2 text-white rounded-lg transition-all text-xs font-bold cursor-pointer shadow-sm active:scale-95 disabled:opacity-50 ${copiedCombinedToast ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-300' : 'bg-emerald-700 hover:bg-emerald-800'}`}
-                    title="Copy WhatsApp Message & ID Card Image together (படம் + வாட்ஸ்அப் விபரம் ஒன்றாக நகலெடு)"
+                    onClick={handleCopyDocWhatsApp}
+                    className={`flex items-center gap-1.5 px-3 py-2 text-white rounded-lg transition-all text-xs font-semibold cursor-pointer shadow-sm active:scale-95 ${copiedTextToast ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-emerald-700 hover:bg-emerald-800'}`}
+                    title="Copy WhatsApp Login Details (வாட்ஸ்அப் தகவல் நகலெடு)"
                   >
-                    {copyingWhatsAppDoc ? (
-                      <RefreshCw size={14} className="animate-spin text-white" />
-                    ) : copiedCombinedToast ? (
-                      <Check size={14} className="text-white" />
-                    ) : (
-                      <MessageSquare size={14} className="text-emerald-300" />
-                    )}
-                    <span>
-                      {copyingWhatsAppDoc ? "தயாராகிறது..." : copiedCombinedToast ? "படம் + விபரம் Copied!" : "WhatsApp விபரம் (படம் + தகவல்)"}
-                    </span>
+                    {copiedTextToast ? <Check size={14} className="text-white" /> : <MessageSquare size={14} className="text-emerald-300" />}
+                    <span>{copiedTextToast ? "WhatsApp விபரம் Copied!" : "WhatsApp விபரம்"}</span>
                   </button>
-
-                  {typeof navigator !== 'undefined' && typeof navigator.share === 'function' && (
-                    <button
-                      type="button"
-                      onClick={handleShareDocWhatsAppDirect}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-all text-xs font-bold cursor-pointer shadow-sm active:scale-95"
-                      title="WhatsApp-ல் நேரடியாகப் பகிரவும் (Direct Share to WhatsApp with Image & Text)"
-                    >
-                      <Share2 size={14} className="text-green-200" />
-                      <span>WhatsApp-ல் பகிர்</span>
-                    </button>
-                  )}
 
                   <button onClick={() => handleDownloadDoc('png')} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-xs font-semibold cursor-pointer shadow-sm">
                     <Download size={14} /> PNG (பதிவிறக்கு)
@@ -1295,18 +1172,18 @@ ${portalUrl}
             </div>
           </div>
           
-          {/* Notification banner when combined copied */}
-          {copiedCombinedToast && (
-            <div className="mx-4 sm:mx-8 mt-3 p-3 bg-emerald-600 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2.5 shadow-md animate-fade-in border border-emerald-400">
+          {/* Notification banner when WhatsApp text copied */}
+          {copiedTextToast && (
+            <div className="mx-4 sm:mx-8 mt-3 p-2.5 bg-emerald-600 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 shadow-md animate-fade-in border border-emerald-400">
               <div className="flex items-center gap-2">
-                <CheckCircle2 size={18} className="shrink-0 text-emerald-200" />
-                <span>🎉 அடையாள அட்டை படம் & WhatsApp விபரம் இரண்டும் ஒரே நேரத்தில் நகலெடுக்கப்பட்டது! WhatsApp-ல் Paste (Ctrl+V) செய்யவும்.</span>
+                <CheckCircle2 size={16} className="shrink-0 text-emerald-200" />
+                <span>📋 மாணவர் WhatsApp விபரம் நகலெடுக்கப்பட்டது (WhatsApp Text Copied)!</span>
               </div>
               <button 
-                onClick={() => setCopiedCombinedToast(false)}
+                onClick={() => setCopiedTextToast(false)}
                 className="text-white/80 hover:text-white p-1"
               >
-                <X size={15} />
+                <X size={14} />
               </button>
             </div>
           )}
@@ -1411,9 +1288,9 @@ ${portalUrl}
 
                   {/* Footer Credentials & QR Code */}
                   <div className="flex items-end justify-between gap-2 mt-1 z-10">
-                    <div className="bg-black/25 backdrop-blur-xs px-2 py-1 rounded border border-white/20 text-[10px] font-mono leading-tight flex-1">
-                      <p className="text-white/80 flex justify-between"><span>User:</span> <span className="text-white font-bold">{docModal.student.username}</span></p>
-                      <p className="text-white/80 flex justify-between"><span>Pass:</span> <span className="text-amber-200 font-bold">{docModal.student.password}</span></p>
+                    <div className="bg-black/25 backdrop-blur-xs px-2.5 py-1.5 rounded border border-white/20 text-[10px] font-mono leading-tight flex-1">
+                      <p className="text-white/80 flex justify-between items-center"><span className="text-sky-200">Username:</span> <span className="text-white font-bold">{docModal.student.username}</span></p>
+                      <p className="text-white/80 flex justify-between items-center mt-0.5"><span className="text-amber-200">Password:</span> <span className="text-amber-200 font-bold">{docModal.student.password}</span></p>
                     </div>
                     <div className="bg-white p-1 rounded shrink-0 shadow-md">
                       <QRCodeSVG value={docModal.student.id} size={42} level="H" includeMargin={false} />
@@ -2427,19 +2304,13 @@ ${portalUrl}
                   </div>
 
                   {/* Toast Notifications */}
-                  {copiedCombinedToast && (
-                    <div className="p-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md animate-fade-in border border-emerald-400">
-                      <CheckCircle2 size={16} className="text-emerald-200 shrink-0" />
-                      🎉 ID கார்டு படம் & WhatsApp தகவல் இரண்டும் நகலெடுக்கப்பட்டது (Ready to paste)!
-                    </div>
-                  )}
-                  {!copiedCombinedToast && copiedImageToast && (
+                  {copiedImageToast && (
                     <div className="p-2 bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md animate-fade-in">
                       <CheckCircle2 size={15} />
                       🎉 கார்டு படமாக நகலெடுக்கப்பட்டது (Ready to paste in WhatsApp)!
                     </div>
                   )}
-                  {!copiedCombinedToast && copiedTextToast && (
+                  {copiedTextToast && (
                     <div className="p-2 bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md animate-fade-in">
                       <CheckCircle2 size={15} />
                       📋 மாணவர் Login விபரம் நகலெடுக்கப்பட்டது (WhatsApp Text Copied)!
@@ -2537,12 +2408,12 @@ ${portalUrl}
                       {/* Footer Credentials & QR Code Row */}
                       <div className="flex items-end justify-between gap-2 mt-1 z-10">
                         <div className="bg-black/35 backdrop-blur-xs px-2.5 py-1.5 rounded-xl border border-white/20 text-[10.5px] font-mono leading-tight flex-1 flex flex-col justify-center">
-                          <p className="text-white/80 flex justify-between">
-                            <span>User:</span> 
+                          <p className="text-white/80 flex justify-between items-center">
+                            <span className="text-sky-200">Username:</span> 
                             <span className="text-white font-bold tracking-wide">{formData.username || "masafiya"}</span>
                           </p>
-                          <p className="text-white/80 flex justify-between mt-0.5">
-                            <span>Pass:</span> 
+                          <p className="text-white/80 flex justify-between items-center mt-0.5">
+                            <span className="text-amber-200">Password:</span> 
                             <span className="text-amber-300 font-bold tracking-wide">{formData.password || "773548509"}</span>
                           </p>
                         </div>
@@ -2585,16 +2456,11 @@ ${portalUrl}
                     <button
                       type="button"
                       onClick={handleCopyLiveCardText}
-                      disabled={copyingLiveCardWhatsApp}
-                      className="flex items-center justify-center gap-1 py-2 px-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-[11px] font-bold transition-all shadow-sm hover:shadow active:scale-95 disabled:opacity-50"
-                      title="Copy WhatsApp Login Details & ID Card image together (படம் + வாட்ஸ்அப் விபரம்)"
+                      className="flex items-center justify-center gap-1 py-2 px-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-[11px] font-bold transition-all shadow-sm hover:shadow active:scale-95"
+                      title="Copy WhatsApp Login Details (வாட்ஸ்அப் தகவல் நகலெடு)"
                     >
-                      {copyingLiveCardWhatsApp ? (
-                        <RefreshCw size={13} className="animate-spin text-white" />
-                      ) : (
-                        <MessageSquare size={13} className="text-emerald-300" />
-                      )}
-                      <span>{copyingLiveCardWhatsApp ? "தயாராகிறது..." : "WhatsApp படம் + விபரம்"}</span>
+                      <MessageSquare size={13} className="text-emerald-400" />
+                      <span>WhatsApp விபரம்</span>
                     </button>
                   </div>
                 </div>

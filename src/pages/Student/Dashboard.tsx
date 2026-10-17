@@ -5036,8 +5036,8 @@ export default function StudentDashboard() {
           {/* Footer Credentials & QR Code */}
           <div className="flex items-end justify-between gap-1 mt-0.5 z-10">
             <div className="bg-black/25 backdrop-blur-xs px-1.5 py-0.5 rounded border border-white/20 text-[7.5px] font-mono leading-tight flex-1">
-              <p className="text-white/80 flex justify-between"><span>User:</span> <span className="text-white font-bold">{studentData.username}</span></p>
-              <p className="text-white/80 flex justify-between"><span>Pass:</span> <span className="text-amber-200 font-bold">{studentData.password}</span></p>
+              <p className="text-white/80 flex justify-between"><span>Username:</span> <span className="text-white font-bold">{studentData.username}</span></p>
+              <p className="text-white/80 flex justify-between"><span>Password:</span> <span className="text-amber-200 font-bold">{studentData.password}</span></p>
             </div>
             <div className="bg-white p-0.5 rounded shrink-0 shadow-md">
               <QRCodeSVG value={studentData.id} size={32} level="H" includeMargin={false} />
