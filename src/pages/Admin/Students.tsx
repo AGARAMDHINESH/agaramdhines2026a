@@ -744,12 +744,31 @@ ${videoZoomUrl}
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (studentOrId: any) => {
+    const student = typeof studentOrId === 'object' && studentOrId !== null
+      ? studentOrId
+      : students.find(s => String(s.id) === String(studentOrId) || String(s.username) === String(studentOrId) || String(s.rollNo) === String(studentOrId));
+
+    const id = student?.id || (typeof studentOrId === 'string' ? studentOrId : '');
+    const username = student?.username;
+    const rollNo = student?.rollNo;
+
+    if (!id && !username && !rollNo) return;
+
     if (window.confirm("இந்த மாணவரை நீக்க விரும்புகிறீர்களா? (Are you sure you want to delete this student? They will not be able to login.)")) {
       try {
-        const updatedStudents = await deleteStudent(id);
+        // Optimistically remove immediately from UI so there is zero flash or resurrecting
+        setStudents(prev => prev.filter(s => {
+          if (!s) return false;
+          if (id && String(s.id).toLowerCase() === String(id).toLowerCase()) return false;
+          if (username && String(s.username || '').toLowerCase() === String(username).toLowerCase()) return false;
+          if (rollNo && String(s.rollNo || '').toLowerCase() === String(rollNo).toLowerCase()) return false;
+          return true;
+        }));
+
+        const updatedStudents = await deleteStudent(id, username, rollNo);
         setStudents(updatedStudents);
-        alert("மாணவர் வெற்றிகரமாக Database-லிருந்து நீக்கப்பட்டார் / Student deleted successfully from database.");
+        alert("மாணவர் வெற்றிகரமாக Database-லிருந்து நிரந்தரமாக நீக்கப்பட்டார் / Student permanently deleted successfully from database.");
       } catch (err: any) {
         console.error("Error deleting student:", err);
         alert("Error deleting student: " + (err.message || err));
@@ -2814,7 +2833,7 @@ ${videoZoomUrl}
                         <Edit size={15} />
                       </button>
                       <button 
-                        onClick={() => handleDelete(student.id)}
+                        onClick={() => handleDelete(student)}
                         className="p-1.5 hover:bg-red-50 text-red-600 rounded-md transition-colors" 
                         title="Delete Student"
                       >
@@ -2922,7 +2941,7 @@ ${videoZoomUrl}
                             <Edit size={16} />
                           </button>
                           <button 
-                            onClick={() => handleDelete(student.id)}
+                            onClick={() => handleDelete(student)}
                             className="p-1.5 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
                             title="Delete"
                           >

@@ -28,6 +28,77 @@ export const mergeArraysById = (primary: any[], secondary: any[]) => {
   return Array.from(map.values());
 };
 
+export const getDeletedStudentsList = (): string[] => {
+  try {
+    const raw = safeGetItem('students_deleted');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.map(s => String(s).trim().toLowerCase()).filter(Boolean);
+    }
+  } catch (_) {}
+  return [];
+};
+
+export const isStudentMatchDeleted = (item: any, deletedSet: Set<string>): boolean => {
+  if (!item || !deletedSet || deletedSet.size === 0) return false;
+  const sId = String(item.id || '').trim().toLowerCase();
+  const sUser = String(item.username || '').trim().toLowerCase();
+  const sRoll = String(item.rollNo || '').trim().toLowerCase();
+  const sCode = String(item.studentCode || '').trim().toLowerCase();
+
+  const ignoreWords = new Set(['', 'student', 'undefined', 'null', 'null_entry', 'user', 'none']);
+
+  if (sId && !ignoreWords.has(sId) && deletedSet.has(sId)) return true;
+  if (sUser && !ignoreWords.has(sUser) && deletedSet.has(sUser)) return true;
+  if (sRoll && !ignoreWords.has(sRoll) && deletedSet.has(sRoll)) return true;
+  if (sCode && !ignoreWords.has(sCode) && deletedSet.has(sCode)) return true;
+
+  return false;
+};
+
+export const markStudentDeleted = (identifiers: (string | number | undefined | null)[]) => {
+  const ignoreWords = new Set(['', 'student', 'undefined', 'null', 'null_entry', 'user', 'none']);
+  const cleanList = identifiers
+    .map(i => (i !== undefined && i !== null ? String(i).trim().toLowerCase() : ''))
+    .filter(i => i && !ignoreWords.has(i));
+  if (cleanList.length === 0) return;
+
+  try {
+    const currentList = getDeletedStudentsList();
+    let changed = false;
+    cleanList.forEach(id => {
+      if (!currentList.includes(id)) {
+        currentList.push(id);
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      const capped = currentList.slice(-1000);
+      safeSetItem('students_deleted', JSON.stringify(capped));
+      if (isFirebaseConfigured) {
+        setDoc(doc(db, 'singletons', 'students_deleted'), { data: capped, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+      }
+    }
+  } catch (_) {}
+};
+
+export const unmarkStudentDeleted = (identifiers: (string | number | undefined | null)[]) => {
+  const cleanList = identifiers
+    .map(i => (i !== undefined && i !== null ? String(i).trim().toLowerCase() : ''))
+    .filter(Boolean);
+  if (cleanList.length === 0) return;
+
+  try {
+    const currentList = getDeletedStudentsList();
+    const updated = currentList.filter(item => !cleanList.includes(item));
+    safeSetItem('students_deleted', JSON.stringify(updated));
+    if (isFirebaseConfigured) {
+      setDoc(doc(db, 'singletons', 'students_deleted'), { data: updated, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+    }
+  } catch (_) {}
+};
+
 const setupRealtimeListener = (key: string) => {
   if (!isFirebaseConfigured || activeListeners[key]) return;
   try {
@@ -35,7 +106,11 @@ const setupRealtimeListener = (key: string) => {
     const unsub = onSnapshot(singletonRef, (snapshot) => {
       if (snapshot.exists() && snapshot.data()?.data !== undefined) {
         const snapPayload = snapshot.data();
-        const serverData = snapPayload.data;
+        let serverData = snapPayload.data;
+        if (key === 'students' && Array.isArray(serverData)) {
+          const dSet = new Set(getDeletedStudentsList());
+          serverData = serverData.filter((s: any) => !isStudentMatchDeleted(s, dSet));
+        }
         window.dispatchEvent(new CustomEvent('db_updated', { detail: { key, data: serverData } }));
       }
     }, (err: any) => {
@@ -156,13 +231,15 @@ const setupRealtimeListener = (key: string) => {
     if (key === 'students') {
       const colUnsub = onSnapshot(collection(db, 'students'), (colSnap) => {
         if (!colSnap.empty) {
-          const list = colSnap.docs.map(d => ({ ...d.data(), id: d.id }));
+          const list = colSnap.docs.map(d => {
+            const docData = d.data() || {};
+            return {
+              ...docData,
+              id: docData.id || d.id
+            };
+          });
           
-          let deletedIds: string[] = [];
-          try {
-            const rawDeleted = safeGetItem('students_deleted');
-            if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
-          } catch (_) {}
+          const dSet = new Set(getDeletedStudentsList());
 
           let localStudents: any[] = [];
           try {
@@ -170,7 +247,7 @@ const setupRealtimeListener = (key: string) => {
             if (rawLocal) localStudents = JSON.parse(rawLocal);
           } catch (_) {}
 
-          const merged = mergeArraysById(list, localStudents).filter(u => !deletedIds.includes(String(u.id).toLowerCase()));
+          const merged = mergeArraysById(list, localStudents).filter(u => !isStudentMatchDeleted(u, dSet));
           const cleanMerged = deduplicateAndSanitizeStudents(merged);
           
           try {
@@ -360,7 +437,12 @@ export const getData = async (key: string, defaultValue: any) => {
           const singletonSnap = await getDoc(singletonRef);
           if (singletonSnap.exists() && singletonSnap.data()?.data !== undefined) {
             const snapData = singletonSnap.data();
-            return snapData.data;
+            let data = snapData.data;
+            if (key === 'students' && Array.isArray(data)) {
+              const dSet = new Set(getDeletedStudentsList());
+              data = data.filter((s: any) => !isStudentMatchDeleted(s, dSet));
+            }
+            return data;
           }
         } catch (singErr: any) {
           if (singErr?.code === 'unavailable' || singErr?.message?.includes('offline')) {
@@ -374,7 +456,17 @@ export const getData = async (key: string, defaultValue: any) => {
           try {
             const querySnapshot = await getDocs(collection(db, key));
             if (!querySnapshot.empty) {
-              const colData = querySnapshot.docs.map(d => ({ ...d.data(), id: d.id }));
+              let colData = querySnapshot.docs.map(d => {
+                const docData = d.data() || {};
+                return {
+                  ...docData,
+                  id: docData.id || d.id
+                };
+              });
+              if (key === 'students') {
+                const dSet = new Set(getDeletedStudentsList());
+                colData = colData.filter((s: any) => !isStudentMatchDeleted(s, dSet));
+              }
               if (colData.length > 0) {
                 // Keep singleton in sync
                 setDoc(doc(db, 'singletons', key), { data: colData, updatedAt: Date.now() }, { merge: false }).catch(() => {});
@@ -411,7 +503,12 @@ export const getData = async (key: string, defaultValue: any) => {
     const rawValue = safeGetItem(key);
     if (rawValue && rawValue !== 'undefined' && rawValue !== 'null') {
       recordReadOperation(1);
-      return JSON.parse(rawValue);
+      const parsed = JSON.parse(rawValue);
+      if (key === 'students' && Array.isArray(parsed)) {
+        const dSet = new Set(getDeletedStudentsList());
+        return parsed.filter((s: any) => !isStudentMatchDeleted(s, dSet));
+      }
+      return parsed;
     }
   } catch (e) {
     console.warn(`Error reading stored data for ${key}:`, e);
@@ -1306,11 +1403,20 @@ export const deduplicateAndSanitizeStudents = (students: any[]): any[] => {
 export const getStudents = async (): Promise<any[]> => {
   setupRealtimeListener('students');
 
-  let deletedIds: string[] = [];
-  try {
-    const rawDeleted = safeGetItem('students_deleted');
-    if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
-  } catch (_) {}
+  let deletedIds: string[] = getDeletedStudentsList();
+
+  if (isFirebaseConfigured) {
+    try {
+      const deletedSnap = await getDoc(doc(db, 'singletons', 'students_deleted'));
+      if (deletedSnap.exists() && Array.isArray(deletedSnap.data()?.data)) {
+        const cloudDeleted = deletedSnap.data().data.map((s: any) => String(s).trim().toLowerCase()).filter(Boolean);
+        deletedIds = Array.from(new Set([...deletedIds, ...cloudDeleted]));
+        safeSetItem('students_deleted', JSON.stringify(deletedIds.slice(-1000)));
+      }
+    } catch (_) {}
+  }
+
+  const deletedSet = new Set(deletedIds);
 
   let localStudents: any[] = [];
   try {
@@ -1319,6 +1425,7 @@ export const getStudents = async (): Promise<any[]> => {
       localStudents = JSON.parse(rawLocal);
     }
   } catch (_) {}
+  localStudents = localStudents.filter(s => !isStudentMatchDeleted(s, deletedSet));
 
   let remoteStudents: any[] = [];
 
@@ -1326,10 +1433,13 @@ export const getStudents = async (): Promise<any[]> => {
     try {
       const querySnapshot = await getDocs(collection(db, 'students'));
       if (!querySnapshot.empty) {
-        remoteStudents = querySnapshot.docs.map((docSnap) => ({
-          ...docSnap.data(),
-          id: docSnap.id
-        }));
+        remoteStudents = querySnapshot.docs.map((docSnap) => {
+          const docData = docSnap.data() || {};
+          return {
+            ...docData,
+            id: docData.id || docSnap.id
+          };
+        });
       }
     } catch (fbErr) {
       console.warn("Firestore collection query for students:", fbErr);
@@ -1343,11 +1453,12 @@ export const getStudents = async (): Promise<any[]> => {
     } catch (_) {}
   }
 
+  // Filter out any student marked deleted
+  remoteStudents = remoteStudents.filter(s => !isStudentMatchDeleted(s, deletedSet));
+
   // Merge remote and local so newly created students in local or remote are NEVER lost
   let combined = mergeArraysById(remoteStudents, localStudents);
-  if (deletedIds.length > 0) {
-    combined = combined.filter(s => !deletedIds.includes(String(s.id).toLowerCase()));
-  }
+  combined = combined.filter(s => !isStudentMatchDeleted(s, deletedSet));
 
   const cleanList = deduplicateAndSanitizeStudents(combined);
 
@@ -1360,7 +1471,7 @@ export const getStudents = async (): Promise<any[]> => {
 
   const raw = await getData('students', null);
   if (raw && Array.isArray(raw) && raw.length > 0) {
-    return deduplicateAndSanitizeStudents(raw.filter(s => !deletedIds.includes(String(s.id).toLowerCase())));
+    return deduplicateAndSanitizeStudents(raw.filter(s => !isStudentMatchDeleted(s, deletedSet)));
   }
 
   return [];
@@ -1375,8 +1486,15 @@ export const saveStudents = async (students: any) => {
     if (rawDeleted) {
       const deletedIds: string[] = JSON.parse(rawDeleted);
       const savedIds = cleanList.map(s => String(s.id).toLowerCase());
-      const cleanedDeleted = deletedIds.filter(d => !savedIds.includes(d.toLowerCase()));
+      const savedUsers = cleanList.map(s => String(s.username || '').toLowerCase()).filter(Boolean);
+      const savedRolls = cleanList.map(s => String(s.rollNo || '').toLowerCase()).filter(Boolean);
+      const activeIds = new Set([...savedIds, ...savedUsers, ...savedRolls]);
+
+      const cleanedDeleted = deletedIds.filter(d => !activeIds.has(d.toLowerCase()));
       safeSetItem('students_deleted', JSON.stringify(cleanedDeleted));
+      if (isFirebaseConfigured && cleanedDeleted.length !== deletedIds.length) {
+        setDoc(doc(db, 'singletons', 'students_deleted'), { data: cleanedDeleted, updatedAt: Date.now() }, { merge: false }).catch(() => {});
+      }
     }
 
     safeSetItem('students', JSON.stringify(cleanList));
@@ -1419,53 +1537,160 @@ export const saveStudents = async (students: any) => {
   return cleanList;
 };
 
-export const deleteStudent = async (id: string | number) => {
-  const targetId = String(id).trim().toLowerCase();
+export const deleteStudent = async (id: string | number, username?: string, rollNo?: string) => {
+  const ignoreWords = new Set(['', 'student', 'undefined', 'null', 'null_entry', 'user', 'none']);
+  const idsToTombstone = new Set<string>();
 
-  // Mark in tombstone so it won't be resurrected from stale local caches
-  try {
-    const rawDeleted = safeGetItem('students_deleted') || '[]';
-    const deletedIds: string[] = JSON.parse(rawDeleted);
-    if (!deletedIds.includes(targetId)) {
-      deletedIds.push(targetId);
-      safeSetItem('students_deleted', JSON.stringify(deletedIds.slice(-500)));
+  const addIdentifier = (val: any) => {
+    if (val !== undefined && val !== null) {
+      const clean = String(val).trim().toLowerCase();
+      if (clean && !ignoreWords.has(clean)) {
+        idsToTombstone.add(clean);
+      }
     }
+  };
+
+  addIdentifier(id);
+  addIdentifier(username);
+  addIdentifier(rollNo);
+
+  // 1. Look up student in current local or cached list to capture all associated IDs
+  let currentStudents: any[] = [];
+  try {
+    const rawLocal = safeGetItem('students');
+    if (rawLocal) currentStudents = JSON.parse(rawLocal);
   } catch (_) {}
 
-  const currentStudents = await getStudents();
+  if (!currentStudents.length) {
+    currentStudents = await getStudents();
+  }
 
-  // Strictly filter out only the exact student by ID
-  const updatedStudents = (currentStudents || []).filter((s: any) => {
+  const foundStudent = currentStudents.find((s: any) => {
     if (!s) return false;
     const sId = String(s.id || '').trim().toLowerCase();
-    return sId !== targetId;
+    const sUser = String(s.username || '').trim().toLowerCase();
+    const sRoll = String(s.rollNo || '').trim().toLowerCase();
+    const sCode = String(s.studentCode || '').trim().toLowerCase();
+
+    return (
+      (sId && idsToTombstone.has(sId)) ||
+      (sUser && idsToTombstone.has(sUser)) ||
+      (sRoll && idsToTombstone.has(sRoll)) ||
+      (sCode && idsToTombstone.has(sCode))
+    );
   });
 
+  if (foundStudent) {
+    addIdentifier(foundStudent.id);
+    addIdentifier(foundStudent.username);
+    addIdentifier(foundStudent.rollNo);
+    addIdentifier(foundStudent.studentCode);
+  }
+
+  const tombstoneArray = Array.from(idsToTombstone);
+
+  // 2. Mark in local and cloud tombstones
+  markStudentDeleted(tombstoneArray);
+
+  // 3. Filter current list
+  const updatedStudents = currentStudents.filter((s: any) => {
+    if (!s) return false;
+    const sId = String(s.id || '').trim().toLowerCase();
+    const sUser = String(s.username || '').trim().toLowerCase();
+    const sRoll = String(s.rollNo || '').trim().toLowerCase();
+    const sCode = String(s.studentCode || '').trim().toLowerCase();
+
+    return !(
+      (sId && idsToTombstone.has(sId)) ||
+      (sUser && idsToTombstone.has(sUser)) ||
+      (sRoll && idsToTombstone.has(sRoll)) ||
+      (sCode && idsToTombstone.has(sCode))
+    );
+  });
+
+  // 4. Update local storage immediately
   try {
     safeSetItem('students', JSON.stringify(updatedStudents));
+    safeSetItem('students_lastSavedAt', String(Date.now()));
   } catch (_) {}
 
-  window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'students', data: updatedStudents } }));
-
+  // 5. Clear active session if this student is currently logged in
   try {
     const session = getUserSession();
     if (session) {
       const sessId = String(session?.id || session?.student_id || '').trim().toLowerCase();
-      if (sessId === targetId) {
+      const sessUser = String(session?.username || '').trim().toLowerCase();
+      const sessRoll = String(session?.rollNo || '').trim().toLowerCase();
+      if (idsToTombstone.has(sessId) || idsToTombstone.has(sessUser) || idsToTombstone.has(sessRoll)) {
         clearUserSession();
       }
     }
   } catch (_) {}
 
+  // 6. Permanent Firestore Deletion
   if (isFirebaseConfigured) {
     try {
-      await deleteDoc(doc(db, 'students', String(id)));
-      await setDoc(doc(db, 'singletons', 'students'), {
-        data: updatedStudents,
-        updatedAt: Date.now()
-      }, { merge: false });
-    } catch (_) {}
+      const deletePromises: Promise<any>[] = [];
+
+      // A. Query Firestore 'students' collection and delete ALL matching documents
+      try {
+        const querySnapshot = await getDocs(collection(db, 'students'));
+        querySnapshot.forEach(docSnap => {
+          const docId = docSnap.id.trim().toLowerCase();
+          const docData = docSnap.data() || {};
+          const dataId = String(docData.id || '').trim().toLowerCase();
+          const dataUser = String(docData.username || '').trim().toLowerCase();
+          const dataRoll = String(docData.rollNo || '').trim().toLowerCase();
+          const dataCode = String(docData.studentCode || '').trim().toLowerCase();
+
+          if (
+            idsToTombstone.has(docId) ||
+            (dataId && idsToTombstone.has(dataId)) ||
+            (dataUser && idsToTombstone.has(dataUser)) ||
+            (dataRoll && idsToTombstone.has(dataRoll)) ||
+            (dataCode && idsToTombstone.has(dataCode))
+          ) {
+            deletePromises.push(deleteDoc(doc(db, 'students', docSnap.id)));
+          }
+        });
+      } catch (colErr) {
+        console.warn("Error querying students collection for deletion:", colErr);
+      }
+
+      // Also delete direct doc IDs just in case
+      tombstoneArray.forEach(idStr => {
+        deletePromises.push(deleteDoc(doc(db, 'students', idStr)).catch(() => {}));
+      });
+
+      // B. Save cleaned list to singleton 'students' with merge: false
+      deletePromises.push(
+        setDoc(doc(db, 'singletons', 'students'), {
+          data: updatedStudents,
+          updatedAt: Date.now()
+        }, { merge: false })
+      );
+
+      // C. Save tombstone blacklist to singleton 'students_deleted'
+      const allDeleted = getDeletedStudentsList();
+      deletePromises.push(
+        setDoc(doc(db, 'singletons', 'students_deleted'), {
+          data: allDeleted,
+          updatedAt: Date.now()
+        }, { merge: false })
+      );
+
+      // Wait for all Firestore deletions to complete before continuing
+      await Promise.race([
+        Promise.all(deletePromises),
+        new Promise(resolve => setTimeout(resolve, 5000))
+      ]);
+    } catch (fbErr: any) {
+      console.warn("Firebase deleteStudent warning:", fbErr?.message || fbErr);
+    }
   }
+
+  // 7. Dispatch UI update AFTER Firestore deletion has completed
+  window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'students', data: updatedStudents } }));
 
   return updatedStudents;
 };
@@ -4201,6 +4426,8 @@ export const saveSystemBackupSnapshot = async (options: string | BackupOptions =
     note: fullBackup.note,
     dateFilter: fullBackup.dateFilter,
     includedCollections: fullBackup.includedCollections,
+    driveLink: (backupOptions as any).driveLink,
+    driveFileId: (backupOptions as any).driveFileId,
     data: fullBackup.data
   };
 

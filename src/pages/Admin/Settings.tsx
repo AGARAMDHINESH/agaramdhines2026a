@@ -33,10 +33,18 @@ import {
   FileCheck,
   Settings as SettingsIcon,
   MessageSquare,
-  Sparkles
+  Sparkles,
+  Cloud,
+  ExternalLink,
+  Link as LinkIcon
 } from "lucide-react";
 import { toPng } from "html-to-image";
 import jsPDF from "jspdf";
+import { 
+  uploadBackupToGoogleDrive, 
+  DEFAULT_DRIVE_FOLDER_URL, 
+  extractDriveFolderId 
+} from "../../lib/googleDriveBackup";
 
 const BACKUP_MODULES = [
   {
@@ -128,6 +136,11 @@ export default function Settings() {
   // Local Directory Handle (File System Access API)
   const [directoryHandle, setDirectoryHandle] = useState<any>(null);
   const [directoryName, setDirectoryName] = useState<string>("");
+
+  // Google Drive Cloud Backup State
+  const [driveFolderUrl, setDriveFolderUrl] = useState<string>(DEFAULT_DRIVE_FOLDER_URL);
+  const [driveUploadLoading, setDriveUploadLoading] = useState<boolean>(false);
+  const [lastDriveResult, setLastDriveResult] = useState<any>(null);
 
   // Restore Modal State
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
@@ -251,6 +264,67 @@ export default function Settings() {
       alert("Backup Error: " + err.message);
     } finally {
       setBackupLoading(false);
+    }
+  };
+
+  const handleBackupToGoogleDrive = async () => {
+    try {
+      const chosenCollections = getSelectedCollectionsList();
+      if (chosenCollections.length === 0) {
+        alert("தயவுசெய்து குறைந்தது ஒரு தரவுப் பாதையைத் (Module) தேர்ந்தெடுக்கவும்.");
+        return;
+      }
+
+      const targetFolderId = extractDriveFolderId(driveFolderUrl);
+
+      // Mandatory user confirmation dialog before transmitting backup data
+      const confirmed = window.confirm(
+        `இந்த முழுமையான Database காப்புப்பிரதியை உங்கள் Google Drive கோப்புறைக்கு (${targetFolderId}) நேரடியாகப் பதிவேற்ற விரும்புகிறீர்களா?\n\nDo you want to upload this full database backup directly to your Google Drive folder?`
+      );
+      if (!confirmed) return;
+
+      setDriveUploadLoading(true);
+
+      const now = new Date();
+      const sanitizedPath = (targetPath.trim() || `Backups/${todayDateStr}`).replace(/\\/g, '/');
+      const timeFormatted = now.toLocaleTimeString("en-US", { hour: '2-digit', minute: '2-digit', hour12: false }).replace(/:/g, "-");
+      const cleanFileName = `Agaram_Database_Backup_${todayDateStr}_${timeFormatted}.json`;
+
+      const options = {
+        pathPrefix: sanitizedPath,
+        selectedCollections: chosenCollections,
+        dateFilter: {
+          enabled: dateFilterEnabled,
+          startDate: dateFilterEnabled ? startDate : undefined,
+          endDate: dateFilterEnabled ? endDate : undefined
+        },
+        note: backupNote.trim() || `Path: ${sanitizedPath}`
+      };
+
+      // 1. Export full structured system backup
+      const backupObj = await exportCustomPathBackup(options);
+
+      // 2. Upload directly to specified Google Drive folder
+      const driveResult = await uploadBackupToGoogleDrive(backupObj, cleanFileName, driveFolderUrl);
+      setLastDriveResult(driveResult);
+
+      // 3. Save snapshot history record with Google Drive reference
+      await saveSystemBackupSnapshot({
+        ...options,
+        note: `${options.note} [Google Drive]`,
+        driveLink: driveResult.webViewLink,
+        driveFileId: driveResult.id
+      } as any);
+
+      await fetchBackups();
+
+      setBackupMsg(`Google Drive-ல் வெற்றிகரமாக காப்புப்பிரதி சேமிக்கப்பட்டது! கோப்பு: "${cleanFileName}"`);
+      setTimeout(() => setBackupMsg(""), 10000);
+    } catch (err: any) {
+      console.error("Google Drive backup error:", err);
+      alert("Google Drive Backup Error: " + (err.message || err));
+    } finally {
+      setDriveUploadLoading(false);
     }
   };
 
@@ -678,6 +752,38 @@ export default function Settings() {
               📁 Archive/Term_Final/
             </button>
           </div>
+
+          {/* Google Drive Target Folder */}
+          <div className="mt-4 pt-3.5 border-t border-slate-200">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <label className="text-[11px] font-semibold text-gray-700 flex items-center gap-1.5">
+                <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+                Google Drive கோப்புறை இணைப்பு (Cloud Drive Target Folder):
+              </label>
+              <a
+                href={driveFolderUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] text-emerald-700 hover:text-emerald-800 font-semibold flex items-center gap-1 transition-colors"
+                title="Google Drive கோப்புறையைத் திறக்க"
+              >
+                Drive-ல் சரிபார்க்க <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+            <div className="relative">
+              <input
+                type="text"
+                value={driveFolderUrl}
+                onChange={(e) => setDriveFolderUrl(e.target.value)}
+                placeholder="https://drive.google.com/drive/folders/..."
+                className="w-full text-xs font-mono bg-white border border-gray-300 rounded-xl px-3 py-2 pl-9 text-gray-800 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+              />
+              <Cloud className="w-4 h-4 text-emerald-600 absolute left-3 top-2.5" />
+            </div>
+            <p className="text-[10px] text-gray-500 mt-1">
+              Folder ID: <span className="font-mono text-emerald-700 font-semibold">{extractDriveFolderId(driveFolderUrl)}</span> (நீங்கள் கொடுத்த டிரைவ் கோப்புறையில் காப்புப்பிரதி நேரடியாகப் பதிவேற்றப்படும்)
+            </p>
+          </div>
         </div>
 
         {/* 2. DATE FILTER & BACKUP NOTE */}
@@ -806,11 +912,11 @@ export default function Settings() {
           <button
             type="button"
             onClick={() => handleCreateAndDownloadBackup(true)}
-            disabled={backupLoading || selectedModules.length === 0}
-            className="sm:col-span-2 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-3 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
+            disabled={backupLoading || driveUploadLoading || selectedModules.length === 0}
+            className="sm:col-span-2 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold px-5 py-3 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
           >
             <DownloadCloud className="w-4 h-4" />
-            {backupLoading ? "காத்திருக்கவும்..." : "பாதை & திகதியுடன் Backup செய்து பதிவிறக்கு"}
+            {backupLoading ? "காத்திருக்கவும்..." : "பாதை & திகதியுடன் கணினியில் பதிவிறக்கு (Local Computer / Disk)"}
           </button>
 
           <label className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold px-4 py-3 rounded-xl text-sm transition-all shadow-sm cursor-pointer text-center">
@@ -820,10 +926,78 @@ export default function Settings() {
               type="file"
               accept=".json"
               onChange={handleOpenRestoreFromFile}
-              disabled={backupLoading}
+              disabled={backupLoading || driveUploadLoading}
               className="hidden"
             />
           </label>
+        </div>
+
+        {/* 4.1 DIRECT GOOGLE DRIVE BACKUP OPTION (RIGHT BELOW, AS REQUESTED) */}
+        <div className="mt-4 bg-gradient-to-r from-emerald-50 via-teal-50/50 to-green-50 border border-emerald-300 rounded-2xl p-5 shadow-xs">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-3 bg-emerald-600 text-white rounded-xl shadow-xs shrink-0 mt-0.5">
+                <Cloud className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="text-sm font-bold text-gray-900">
+                    Google Drive மேகக்கணி நேரடி காப்புப்பிரதி (Direct Google Drive Cloud Backup)
+                  </h4>
+                  <span className="text-[10px] bg-emerald-600 text-white font-bold px-2.5 py-0.5 rounded-full shadow-2xs">
+                    இணைக்கப்பட்டுள்ளது
+                  </span>
+                </div>
+                <p className="text-xs text-gray-600 mt-1">
+                  நீங்கள் வழங்கிய Google Drive கோப்புறைக்கு முழுமையான Database தகவல்களையும் உடனடியாக நேரடியாகப் பதிவேற்றலாம்.
+                </p>
+                <div className="mt-2 flex items-center gap-2 flex-wrap text-[11px] text-gray-700 font-mono bg-white/90 border border-emerald-200 rounded-lg px-2.5 py-1">
+                  <span className="font-semibold text-emerald-800">இலக்கு கோப்புறை:</span>
+                  <span className="truncate max-w-xs md:max-w-lg">{driveFolderUrl}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 w-full lg:w-auto shrink-0">
+              <a
+                href={driveFolderUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-center gap-1.5 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 font-semibold px-4 py-3 rounded-xl text-xs transition-colors shadow-2xs whitespace-nowrap"
+                title="Google Drive கோப்புறையை திறக்கவும்"
+              >
+                <ExternalLink className="w-4 h-4 text-gray-500" />
+                Drive கோப்புறை
+              </a>
+
+              <button
+                type="button"
+                onClick={handleBackupToGoogleDrive}
+                disabled={driveUploadLoading || backupLoading || selectedModules.length === 0}
+                className="flex-1 lg:flex-none flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold px-6 py-3 rounded-xl text-xs sm:text-sm transition-all shadow-md disabled:opacity-50 whitespace-nowrap"
+              >
+                <Cloud className="w-4 h-4" />
+                {driveUploadLoading ? "Drive-க்கு பதிவேற்றுகிறது..." : "Google Drive-க்கு நேரடியாக Backup செய்க"}
+              </button>
+            </div>
+          </div>
+
+          {lastDriveResult && lastDriveResult.webViewLink && (
+            <div className="mt-3.5 pt-3 border-t border-emerald-200/80 flex items-center justify-between gap-2 text-xs flex-wrap">
+              <div className="flex items-center gap-1.5 text-emerald-800 font-medium">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>கடைசியாக பதிவேற்றப்பட்ட கோப்பு: <strong className="font-mono">{lastDriveResult.name}</strong></span>
+              </div>
+              <a
+                href={lastDriveResult.webViewLink}
+                target="_blank"
+                rel="noreferrer"
+                className="text-emerald-700 hover:text-emerald-900 font-bold underline flex items-center gap-1 ml-auto"
+              >
+                Google Drive-ல் திறக்க <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          )}
         </div>
 
         {/* 5. SAVED DATE & PATH BACKUPS SNAPSHOTS HISTORY */}
@@ -874,6 +1048,19 @@ export default function Settings() {
                   </div>
 
                   <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                    {b.driveLink && (
+                      <a
+                        href={b.driveLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Google Drive-ல் திறக்க"
+                        className="flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-2xs"
+                      >
+                        <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+                        Drive-ல் திறக்க
+                      </a>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => handleOpenRestoreFromSnapshot(b)}
