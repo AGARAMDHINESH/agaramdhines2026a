@@ -741,11 +741,11 @@ export default function ParcelDeliveryPage() {
             page-break-after: always !important;
             page-break-inside: avoid !important;
             box-sizing: border-box !important;
-            padding: 5.5mm 5mm !important;
+            padding: 6mm 5mm !important;
             display: grid !important;
             grid-template-columns: 98mm 98mm !important;
-            grid-template-rows: 141mm 141mm !important;
-            gap: 4mm !important;
+            grid-template-rows: 139mm 139mm !important;
+            gap: 7mm 4mm !important;
             position: relative !important;
             background: #fff !important;
             overflow: hidden !important;
@@ -1680,11 +1680,11 @@ export default function ParcelDeliveryPage() {
                     height: "297mm",
                     minHeight: "297mm",
                     maxHeight: "297mm",
-                    padding: "5.5mm 5mm",
+                    padding: "6mm 5mm",
                     display: "grid",
                     gridTemplateColumns: "98mm 98mm",
-                    gridTemplateRows: "141mm 141mm",
-                    gap: "4mm",
+                    gridTemplateRows: "139mm 139mm",
+                    gap: "7mm 4mm",
                     overflow: "hidden",
                     boxSizing: "border-box",
                     backgroundColor: "#ffffff"
@@ -1694,8 +1694,8 @@ export default function ParcelDeliveryPage() {
                   {pageGroup.map((parcelItem) => (
                     <div 
                       key={parcelItem.id} 
-                      className="w-[98mm] h-[141mm] max-w-[98mm] max-h-[141mm] flex items-center justify-center overflow-hidden"
-                      style={{ width: "98mm", height: "141mm", boxSizing: "border-box" }}
+                      className="w-[98mm] h-[139mm] max-w-[98mm] max-h-[139mm] min-h-0 min-w-0 flex items-center justify-center overflow-hidden"
+                      style={{ width: "98mm", height: "139mm", maxHeight: "139mm", boxSizing: "border-box" }}
                     >
                       <ParcelReceiptCard 
                         parcel={parcelItem} 
