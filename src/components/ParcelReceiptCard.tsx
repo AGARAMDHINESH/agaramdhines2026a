@@ -164,10 +164,10 @@ export default function ParcelReceiptCard({
         ref={cardRef}
         className={`bg-white text-black border-2 border-black rounded-lg shadow-sm font-sans flex flex-col justify-between select-none relative box-border overflow-hidden ${
           isPrintView 
-            ? "w-[99mm] max-w-[99mm] h-[142mm] max-h-[142mm] p-2" 
+            ? "w-[98mm] max-w-[98mm] h-[141mm] max-h-[141mm] p-2" 
             : "w-[340px] sm:w-[350px] max-w-[360px] p-2.5"
         }`}
-        style={isPrintView ? { width: "99mm", maxWidth: "99mm", height: "142mm", maxHeight: "142mm" } : { maxWidth: "360px" }}
+        style={isPrintView ? { width: "98mm", maxWidth: "98mm", height: "141mm", maxHeight: "141mm", boxSizing: "border-box" } : { maxWidth: "360px" }}
       >
         {/* 1. TOP HEADER: Centered Academy Title + Online Academy + Tel + Double Line */}
         <div className="relative pb-1 shrink-0 text-center">
@@ -234,13 +234,13 @@ export default function ParcelReceiptCard({
         </div>
 
         {/* 3. CENTER ROW: Highly Scannable Chunky QR Code + Square Official Seal Box */}
-        <div className="my-1.5 flex items-center justify-between gap-3 px-1">
+        <div className={`my-1 flex items-center justify-between ${isPrintView ? "gap-2 px-0.5" : "gap-3 px-1"}`}>
           {/* QR Code Section (Enlarged for Instant Camera Scannability) */}
           <div className="flex-1 flex flex-col items-center justify-center text-center">
             <div className="p-1 border-2 border-black rounded-lg bg-white shadow-2xs">
               <QRCodeSVG
                 value={confirmationUrl}
-                size={98}
+                size={isPrintView ? 80 : 98}
                 level="M"
                 includeMargin={true}
               />
@@ -254,7 +254,7 @@ export default function ParcelReceiptCard({
           </div>
 
           {/* Square Official Seal Box (Official Seal - Agaram Dhinesh) */}
-          <div className="w-[98px] h-[98px] border-2 border-black rounded-lg flex flex-col items-center justify-between p-1.5 text-center bg-white shadow-2xs shrink-0">
+          <div className={`${isPrintView ? "w-[84px] h-[84px]" : "w-[98px] h-[98px]"} border-2 border-black rounded-lg flex flex-col items-center justify-between p-1.5 text-center bg-white shadow-2xs shrink-0`}>
             <div className="w-full text-center border-b border-black pb-0.5">
               <span className="text-[8.5px] font-black tracking-wider uppercase text-black block leading-none">
                 OFFICIAL SEAL

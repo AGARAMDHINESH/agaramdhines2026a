@@ -476,11 +476,15 @@ export default function ParcelDeliveryPage() {
 
         const dataUrl = await toPng(sheet, {
           quality: 0.98,
-          pixelRatio: 2.5,
-          backgroundColor: "#ffffff"
+          pixelRatio: 2,
+          backgroundColor: "#ffffff",
+          width: 794,
+          height: 1123,
+          canvasWidth: 794 * 2,
+          canvasHeight: 1123 * 2
         });
 
-        pdf.addImage(dataUrl, "PNG", 0, 0, 210, 297);
+        pdf.addImage(dataUrl, "PNG", 0, 0, 210, 297, undefined, "FAST");
       }
 
       pdf.save(`Agaram_Parcel_Receipts_A4_${new Date().toISOString().split("T")[0]}.pdf`);
@@ -723,29 +727,31 @@ export default function ParcelDeliveryPage() {
             position: absolute;
             left: 0;
             top: 0;
-            width: 100%;
+            width: 210mm !important;
             display: block !important;
             background: #fff;
           }
           .a4-page-sheet {
             width: 210mm !important;
+            min-width: 210mm !important;
+            max-width: 210mm !important;
             height: 297mm !important;
             min-height: 297mm !important;
             max-height: 297mm !important;
             page-break-after: always !important;
             page-break-inside: avoid !important;
             box-sizing: border-box !important;
-            padding: 4mm !important;
+            padding: 5.5mm 5mm !important;
             display: grid !important;
-            grid-template-columns: 1fr 1fr !important;
-            grid-template-rows: 1fr 1fr !important;
-            gap: 3mm !important;
+            grid-template-columns: 98mm 98mm !important;
+            grid-template-rows: 141mm 141mm !important;
+            gap: 4mm !important;
             position: relative !important;
             background: #fff !important;
             overflow: hidden !important;
           }
           @page {
-            size: A4 portrait;
+            size: 210mm 297mm;
             margin: 0;
           }
         }
@@ -1625,7 +1631,7 @@ export default function ParcelDeliveryPage() {
                 A4-ல் 4 ரசீதுகள் பல்க் அச்சிடுதல் (Bulk 4-Per-A4 Print & PDF)
               </h3>
               <p className="text-[11px] text-slate-300">
-                மொத்தம் {bulkPrintItems.length} ரசீதுகள் ({a4Pages.length} A4 தாள்கள்). நடுவில் கட் செய்வதற்கான கோடுகள் உள்ளன.
+                மொத்தம் {bulkPrintItems.length} ரசீதுகள் ({a4Pages.length} A4 தாள்கள்). ஒரு A4 தாளில் 4 ரசீதுகள் வீதம் அச்சிடப்படும்.
               </p>
             </div>
 
@@ -1660,57 +1666,47 @@ export default function ParcelDeliveryPage() {
             </div>
           </div>
 
-          {/* Printable Container for 4-per-A4 Grid */}
-          <div id="printable-bulk-a4" className="w-full max-w-4xl space-y-8 pb-12">
-            {a4Pages.map((pageGroup, pageIndex) => (
-              <div 
-                key={pageIndex}
-                className="a4-page-sheet bg-white border border-slate-300 rounded-xl shadow-xl mx-auto relative overflow-hidden"
-                style={{
-                  width: "210mm",
-                  height: "297mm",
-                  minHeight: "297mm",
-                  maxHeight: "297mm",
-                  padding: "4mm",
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gridTemplateRows: "1fr 1fr",
-                  gap: "3mm",
-                  overflow: "hidden"
-                }}
-              >
-                {/* Horizontal Center Cut Line */}
+          {/* Printable Container for 4-per-A4 Grid with Horizontal Scroll Protection */}
+          <div className="w-full overflow-x-auto flex flex-col items-center pb-12">
+            <div id="printable-bulk-a4" className="space-y-8">
+              {a4Pages.map((pageGroup, pageIndex) => (
                 <div 
-                  className="absolute left-0 right-0 border-b-2 border-dashed border-gray-400 pointer-events-none flex items-center justify-center"
-                  style={{ top: "148.5mm" }}
+                  key={pageIndex}
+                  className="a4-page-sheet bg-white border border-slate-300 rounded-none shadow-xl mx-auto relative overflow-hidden"
+                  style={{
+                    width: "210mm",
+                    minWidth: "210mm",
+                    maxWidth: "210mm",
+                    height: "297mm",
+                    minHeight: "297mm",
+                    maxHeight: "297mm",
+                    padding: "5.5mm 5mm",
+                    display: "grid",
+                    gridTemplateColumns: "98mm 98mm",
+                    gridTemplateRows: "141mm 141mm",
+                    gap: "4mm",
+                    overflow: "hidden",
+                    boxSizing: "border-box",
+                    backgroundColor: "#ffffff"
+                  }}
                 >
-                  <span className="bg-white text-[9px] font-bold text-gray-500 px-2 py-0.5 rounded border border-gray-300 uppercase tracking-widest flex items-center gap-1">
-                    <Scissors size={10} /> Cut Here (இங்கு வெட்டவும்)
-                  </span>
+                  {/* 4 Quadrants on the A4 page */}
+                  {pageGroup.map((parcelItem) => (
+                    <div 
+                      key={parcelItem.id} 
+                      className="w-[98mm] h-[141mm] max-w-[98mm] max-h-[141mm] flex items-center justify-center overflow-hidden"
+                      style={{ width: "98mm", height: "141mm", boxSizing: "border-box" }}
+                    >
+                      <ParcelReceiptCard 
+                        parcel={parcelItem} 
+                        showActions={false} 
+                        isPrintView={true} 
+                      />
+                    </div>
+                  ))}
                 </div>
-
-                {/* Vertical Center Cut Line */}
-                <div 
-                  className="absolute top-0 bottom-0 border-r-2 border-dashed border-gray-400 pointer-events-none flex items-center justify-center"
-                  style={{ left: "105mm" }}
-                >
-                  <span className="bg-white text-[9px] font-bold text-gray-500 px-1 py-1 rounded border border-gray-300 uppercase tracking-widest -rotate-90">
-                    <Scissors size={10} /> Cut
-                  </span>
-                </div>
-
-                {/* 4 Quadrants on the A4 page */}
-                {pageGroup.map((parcelItem) => (
-                  <div key={parcelItem.id} className="flex items-center justify-center p-0.5">
-                    <ParcelReceiptCard 
-                      parcel={parcelItem} 
-                      showActions={false} 
-                      isPrintView={true} 
-                    />
-                  </div>
-                ))}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       )}
