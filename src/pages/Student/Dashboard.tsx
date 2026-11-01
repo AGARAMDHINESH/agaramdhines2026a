@@ -45,7 +45,8 @@ import {
   List,
   Star,
   Filter,
-  GraduationCap
+  GraduationCap,
+  Package
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import WhatsAppIcon from "../../components/WhatsAppIcon";
@@ -55,7 +56,7 @@ import { toPng } from "html-to-image";
 import jsPDF from "jspdf";
 import RecordingSection, { deduplicateCourses, areSubjectsMatching, doesItemMatchGrade, doesItemMatchStudentSubjects, normalizeGradeString, getCanonicalSubjectCategory, filterSubjectsForStudentGrade, isSubjectValidForGrade } from "../../components/RecordingSection";
 
-import { getCourses, getCourseMaterials, getZoomLinks, isZoomLinkExpired, formatZoomLinkRemaining, getYoutubeLinks, getFees, getAttendance, saveAttendance, getClassLinks, getCourseWebsiteLinks, getHomework, getStaffs, getTimeTable, getStudents, saveStudents, getAdminSettings, getClasses, getExamMarks, saveExamMarks, getWebPosts, getStudentMenuLabels, DEFAULT_STUDENT_MENU_LABELS, StudentMenuLabels, getTermExams, getExamSubmissions, saveExamSubmissions } from "../../lib/db";
+import { getCourses, getCourseMaterials, getZoomLinks, isZoomLinkExpired, formatZoomLinkRemaining, getYoutubeLinks, getFees, getAttendance, saveAttendance, getClassLinks, getCourseWebsiteLinks, getHomework, getStaffs, getTimeTable, getStudents, saveStudents, getAdminSettings, getClasses, getExamMarks, saveExamMarks, getWebPosts, getStudentMenuLabels, DEFAULT_STUDENT_MENU_LABELS, StudentMenuLabels, getTermExams, getExamSubmissions, saveExamSubmissions, getParcelDeliveries, updateParcelDelivery, ParcelDelivery } from "../../lib/db";
 import { formatEmbedUrl } from "../Admin/TermExam";
 import { getUserSession, saveUserSession, clearUserSession } from "../../lib/authSession";
 import CountdownTimer from "../../components/CountdownTimer";
@@ -174,6 +175,9 @@ export default function StudentDashboard() {
     remarks: ""
   });
   const [isSubmittingMarks, setIsSubmittingMarks] = useState(false);
+  const [studentParcels, setStudentParcels] = useState<ParcelDelivery[]>([]);
+  const [showParcelModal, setShowParcelModal] = useState(false);
+  const [isUpdatingParcel, setIsUpdatingParcel] = useState(false);
 
   const handleTabSelect = (tabId: string) => {
     const restrictedTabs = ["youtube", "course_materials", "courses", "subjects"];
@@ -875,12 +879,34 @@ export default function StudentDashboard() {
         const hwDate = new Date(h.date);
         return hwDate >= sevenDaysAgo;
       }));
+
+      // Load parcel deliveries for this student
+      try {
+        const allParcels = await getParcelDeliveries();
+        const sRoll = (freshStudentData.rollNo || '').trim().toLowerCase();
+        const sUser = (freshStudentData.username || '').trim().toLowerCase();
+        const sName = (freshStudentData.name || '').trim().toLowerCase();
+        const sId = freshStudentData.id;
+
+        const myParcels = (allParcels || []).filter((p: ParcelDelivery) => {
+          if (!p) return false;
+          const pRoll = (p.rollNo || '').trim().toLowerCase();
+          const pName = (p.studentName || '').trim().toLowerCase();
+          return (sId && p.studentId === sId) ||
+                 (sRoll && pRoll === sRoll) ||
+                 (sUser && pRoll === sUser) ||
+                 (sName && pName === sName);
+        });
+        setStudentParcels(myParcels);
+      } catch (err) {
+        console.error("Failed to load student parcels:", err);
+      }
     };
     loadData();
 
     const handleDbUpdate = (e: CustomEvent) => {
       const key = e.detail?.key;
-      if (['courseMaterials', 'courses', 'zoomLinks', 'youtubeLinks', 'webPosts', 'students', 'classes', 'staffs', 'timetable', 'examMarks', 'homework', 'termExams', 'examSubmissions'].includes(key)) {
+      if (['courseMaterials', 'courses', 'zoomLinks', 'youtubeLinks', 'webPosts', 'students', 'classes', 'staffs', 'timetable', 'examMarks', 'homework', 'termExams', 'examSubmissions', 'parcelDeliveries'].includes(key)) {
         loadData();
       }
     };
@@ -937,6 +963,29 @@ export default function StudentDashboard() {
       setIsInstallable(false);
     }
     setDeferredPrompt(null);
+  };
+
+  const handleConfirmStudentParcelReceived = async (parcelId: string) => {
+    if (!window.confirm("உங்களுக்கு இந்த டியூட் / பார்சல் கிடைத்துவிட்டதா? பெற்றுக்கொண்டதாக உறுதிப்படுத்த விரும்புகிறீர்களா?")) {
+      return;
+    }
+    setIsUpdatingParcel(true);
+    try {
+      const nowIso = new Date().toISOString();
+      await updateParcelDelivery(parcelId, {
+        status: "delivered",
+        receivedAt: nowIso
+      });
+      setStudentParcels(prev =>
+        prev.map(p => p.id === parcelId ? { ...p, status: "delivered", receivedAt: nowIso } : p)
+      );
+      alert("பார்சல் வெற்றிகரமாக கிடைத்துவிட்டதாக பதிவு செய்யப்பட்டது! மிக்க மகிழ்ச்சி 📦✨");
+    } catch (err) {
+      console.error("Failed to confirm parcel:", err);
+      alert("பதிவு செய்வதில் பிழை ஏற்பட்டது. தயவுசெய்து மீண்டும் முயற்சிக்கவும்.");
+    } finally {
+      setIsUpdatingParcel(false);
+    }
   };
 
   const [displayName, setDisplayName] = useState(studentData?.name || "");
@@ -1605,6 +1654,54 @@ export default function StudentDashboard() {
         </div>
       )}
 
+      {/* Dispatched Parcel Delivery Alert Banner */}
+      {studentParcels.filter(p => p.status === 'dispatched').map(parcel => (
+        <div 
+          key={parcel.id} 
+          className="bg-gradient-to-r from-blue-700 via-indigo-700 to-indigo-900 text-white px-4 py-3 shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between z-50 border-b border-indigo-400 gap-3"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-white/20 rounded-xl animate-bounce shrink-0">
+              <Package size={22} className="text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="bg-amber-400 text-amber-950 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  📦 டியூட் / பார்சல் அனுப்பப்பட்டுள்ளது
+                </span>
+                {parcel.trackingNumber && (
+                  <span className="text-xs text-blue-200">
+                    டிராக்கிங்: <span className="font-mono font-bold text-white">{parcel.trackingNumber}</span>
+                  </span>
+                )}
+              </div>
+              <p className="text-sm font-bold text-white mt-0.5">
+                மாணவர் {parcel.studentName} அவர்களுக்கு அகாடமியிலிருந்து டியூட் பார்சல் அனுப்பப்பட்டுள்ளது!
+              </p>
+              <p className="text-xs text-blue-100">
+                முகவரி: {parcel.addressLine1}, {parcel.addressLine2}{parcel.addressLine3 ? `, ${parcel.addressLine3}` : ''} | அனுப்பிய தேதி: {parcel.dispatchedDate}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end md:self-auto shrink-0">
+            <button
+              onClick={() => handleConfirmStudentParcelReceived(parcel.id)}
+              disabled={isUpdatingParcel}
+              className="bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white px-4 py-2 rounded-xl text-xs font-black shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <CheckCircle size={15} />
+              <span>ஆம், பார்சல் கிடைத்துவிட்டது!</span>
+            </button>
+            <button
+              onClick={() => setShowParcelModal(true)}
+              className="bg-white/20 hover:bg-white/30 text-white px-3 py-2 rounded-xl text-xs font-bold transition-all"
+            >
+              விவரம்
+            </button>
+          </div>
+        </div>
+      ))}
+
       {/* Header */}
       <div className="bg-white border-b border-slate-200 text-slate-800 p-4 flex items-center justify-between shadow-sm sticky top-0 z-40">
         <div className="flex items-center">
@@ -1998,6 +2095,23 @@ export default function StudentDashboard() {
                   <Award size={28} />
                 </div>
                 <span className="font-bold text-slate-700 text-sm sm:text-base text-center line-clamp-1">தேர்வுகள் (Exams)</span>
+              </div>
+
+              {/* Parcel / Tute Delivery Card */}
+              <div
+                onClick={() => setShowParcelModal(true)}
+                className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center cursor-pointer hover:shadow-md hover:-translate-y-1 transition-all group relative sm:col-span-1 md:col-span-1"
+              >
+                {studentParcels.filter(p => p.status === 'dispatched').length > 0 && (
+                  <span className="absolute top-3 right-3 flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                  </span>
+                )}
+                <div className="w-14 h-14 bg-sky-50 text-sky-600 rounded-2xl flex items-center justify-center mb-3 group-hover:bg-sky-100 transition-colors">
+                  <Package size={28} />
+                </div>
+                <span className="font-bold text-slate-700 text-sm sm:text-base text-center line-clamp-1">டியூட் & பார்சல்</span>
               </div>
             </div>
 
@@ -5632,6 +5746,109 @@ export default function StudentDashboard() {
           </div>
         )}
       </AnimatePresence>
+      {/* Parcel Delivery Modal for Student */}
+      {showParcelModal && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+          onClick={() => setShowParcelModal(false)}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 relative my-8"
+          >
+            <div className="flex items-center justify-between border-b pb-3 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <Package size={22} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">டியூட் & பார்சல் விநியோக விபரம்</h3>
+                  <p className="text-xs text-slate-500">அகாடமி பார்சல் நிலவரம் & உறுதிப்படுத்தல்</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowParcelModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {studentParcels.length === 0 ? (
+              <div className="py-10 text-center text-slate-500">
+                <Package size={42} className="mx-auto text-slate-300 mb-2" />
+                <p className="font-semibold text-sm">தங்களுக்கு இதுவரை பார்சல் எதுவும் அனுப்பப்படவில்லை</p>
+                <p className="text-xs text-slate-400 mt-1">புதிய டியூட்கள் அனுப்பப்படும் போது உடனடியாக இங்கு அறியலாம்.</p>
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+                {studentParcels.map((parcel) => (
+                  <div 
+                    key={parcel.id} 
+                    className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div>
+                        <span className="text-[11px] font-mono font-bold text-slate-500 block">
+                          டிராக்கிங்: {parcel.trackingNumber || parcel.id.slice(0, 8)}
+                        </span>
+                        <p className="font-bold text-slate-800 text-sm">{parcel.studentName}</p>
+                      </div>
+                      <span className={`text-[11px] font-black px-2.5 py-1 rounded-full flex items-center gap-1 ${
+                        parcel.status === 'delivered' 
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
+                          : 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'
+                      }`}>
+                        {parcel.status === 'delivered' ? (
+                          <>
+                            <CheckCircle size={12} className="text-emerald-600" />
+                            கிடைத்துவிட்டது
+                          </>
+                        ) : (
+                          <>
+                            <Clock size={12} className="text-amber-600" />
+                            அனுப்பப்பட்டுள்ளது
+                          </>
+                        )}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-600 space-y-1 bg-white p-3 rounded-lg border border-slate-200/80 mb-3">
+                      <p><span className="font-bold text-slate-700">முகவரி:</span> {parcel.addressLine1}, {parcel.addressLine2}{parcel.addressLine3 ? `, ${parcel.addressLine3}` : ''}</p>
+                      <p><span className="font-bold text-slate-700">தொலைபேசி:</span> {parcel.phone}</p>
+                      <p><span className="font-bold text-slate-700">ரோல் நம்பர்:</span> {parcel.rollNo}</p>
+                      <p><span className="font-bold text-slate-700">அனுப்பப்பட்ட தேதி:</span> {parcel.dispatchedDate}</p>
+                      {parcel.receivedAt && (
+                        <p className="text-emerald-700 font-semibold">
+                          <span className="font-bold">பெற்றுக்கொண்ட தேதி:</span> {new Date(parcel.receivedAt).toLocaleString()}
+                        </p>
+                      )}
+                      {parcel.notes && <p><span className="font-bold text-slate-700">குறிப்பு:</span> {parcel.notes}</p>}
+                    </div>
+
+                    {parcel.status === 'dispatched' ? (
+                      <button
+                        onClick={() => handleConfirmStudentParcelReceived(parcel.id)}
+                        disabled={isUpdatingParcel}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-black text-xs py-2.5 px-4 rounded-xl shadow transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <CheckCircle size={16} />
+                        <span>ஆம், எனக்கு பார்சல் கிடைத்துவிட்டது! (Confirm Received)</span>
+                      </button>
+                    ) : (
+                      <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5">
+                        <CheckCircle2 size={16} className="text-emerald-600" />
+                        <span>பார்சல் வெற்றிகரமாக பெற்றுக்கொள்ளப்பட்டது</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Floating In-App Notification Toast */}
       {notificationToastMsg && (
         <div className="fixed bottom-6 right-6 z-50 bg-slate-900/95 backdrop-blur-md text-white px-5 py-3.5 rounded-2xl shadow-2xl border border-amber-400/40 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-5 duration-300 max-w-md">

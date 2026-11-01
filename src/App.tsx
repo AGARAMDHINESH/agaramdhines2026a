@@ -49,6 +49,8 @@ import TamilAsanPage from "./pages/TamilAsanPage";
 import TamilAsanHub from "./pages/Admin/TamilAsanHub";
 import StudentDashboard from "./pages/Student/Dashboard";
 import StaffDashboard from "./pages/Staff/Dashboard";
+import ParcelDeliveryPage from "./pages/Admin/ParcelDelivery";
+import ParcelConfirmationPage from "./pages/ParcelConfirmationPage";
 import OurStory from "./pages/OurStory";
 import Careers from "./pages/Careers";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
@@ -76,9 +78,11 @@ export default function App() {
         <Route path="/exam/:id" element={<PublicExamPortal />} />
         <Route path="/exams/:id" element={<PublicExamPortal />} />
         <Route path="/tamil-asan" element={<TamilAsanPage />} />
+        <Route path="/parcel-confirm/:id" element={<ParcelConfirmationPage />} />
 
         <Route path="/admin" element={<AdminDashboard />}>
           <Route index element={<AdminHome />} />
+          <Route path="parcel-delivery" element={<ParcelDeliveryPage />} />
           <Route path="forms" element={<Forms />} />
           <Route path="students" element={<Students />} />
           <Route path="bulk-documents" element={<BulkDocuments />} />

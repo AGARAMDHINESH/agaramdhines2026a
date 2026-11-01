@@ -35,7 +35,8 @@ import {
   ChevronDown,
   MessageSquare,
   ChevronRight,
-  MessageCircle
+  MessageCircle,
+  Package
 } from "lucide-react";
 import WhatsAppIcon from "../../components/WhatsAppIcon";
 import LiveChat from "../../components/LiveChat";
@@ -185,6 +186,11 @@ export default function AdminDashboard() {
         { name: "Live Chat", path: "/admin/live-chat" },
         { name: "Chatbot Settings", path: "/admin/chatbot-settings" },
       ]
+    },
+    { 
+      name: "பார்சல் & டியூட் விநியோகம்", 
+      path: "/admin/parcel-delivery", 
+      icon: <Package size={18} /> 
     },
     { name: "Home Page Settings", path: "/admin/home-settings", icon: <Globe size={18} /> },
     { name: "General Settings", path: "/admin/settings", icon: <Settings size={18} /> },

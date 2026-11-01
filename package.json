@@ -23,6 +23,7 @@
     "html-to-image": "^1.11.13",
     "html2canvas": "^1.4.1",
     "html5-qrcode": "^2.3.8",
+    "jsbarcode": "^3.12.3",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "jszip": "^3.10.2",
@@ -40,6 +41,7 @@
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
+    "@types/jsbarcode": "^3.11.4",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
     "tailwindcss": "^4.1.14",

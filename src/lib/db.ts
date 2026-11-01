@@ -541,7 +541,7 @@ export const saveData = async (key: string, data: any) => {
       await setDoc(singletonRef, { data: cleanData, updatedAt: now }, { merge: false });
 
       // If key is students/forms/staffs/courses/etc., sync ALL individual documents cleanly without truncation
-      if (Array.isArray(cleanData) && ['forms', 'students', 'staffs', 'employeeTasks', 'dailyWorkUploads', 'zoomLinks', 'formSubmissions', 'courses', 'courseMaterials', 'youtubeLinks', 'fees', 'classes', 'subjects'].includes(key)) {
+      if (Array.isArray(cleanData) && ['forms', 'students', 'staffs', 'employeeTasks', 'dailyWorkUploads', 'zoomLinks', 'formSubmissions', 'courses', 'courseMaterials', 'youtubeLinks', 'fees', 'classes', 'subjects', 'parcelDeliveries'].includes(key)) {
         for (const item of cleanData) {
           if (item && (item.id || item.name)) {
             const docId = String(item.id || item.name).trim();
@@ -4307,7 +4307,8 @@ export const ALL_BACKUP_COLLECTIONS = [
   'classes', 'homework', 'staffs', 'staffAttendance', 'subjects',
   'incomeExpense', 'grades', 'timetable', 'examMarks', 'webPosts',
   'examSettings', 'announcements', 'behaviourRecords', 'questionPapers',
-  'chatMessages', 'forms', 'formSubmissions', 'employeeTasks', 'dailyWorkUploads'
+  'chatMessages', 'forms', 'formSubmissions', 'employeeTasks', 'dailyWorkUploads',
+  'parcelDeliveries', 'parcelSenderSettings'
 ];
 
 export interface BackupOptions {
@@ -4443,4 +4444,274 @@ export const deleteSystemBackupSnapshot = async (id: string) => {
     await saveData('systemBackups', updated);
   }
 };
+
+// ==========================================
+// PARCEL & TUTE DELIVERY MANAGEMENT
+// ==========================================
+
+export interface ParcelDelivery {
+  id: string;
+  trackingNumber: string;
+  studentId?: string;
+  studentRollNo: string;
+  rollNo?: string;
+  studentName: string;
+  grade?: string;
+  phone: string;
+  addressLine1: string;
+  addressLine2: string;
+  addressLine3: string;
+  addressLine4?: string;
+  addressLines?: string[];
+  fullAddress?: string;
+  itemsDescription?: string;
+  // Sender information (Teacher D. Dinesh Kumar)
+  senderName: string;
+  senderAcademy: string;
+  senderAddressLine1: string;
+  senderAddressLine2: string;
+  senderAddressLine3: string;
+  senderAddressLine4?: string;
+  senderPhone: string;
+  // Status: Dispatched (அனுப்பப்பட்டது) or Delivered (கிடைத்துவிட்டது)
+  status: 'dispatched' | 'delivered';
+  dispatchedDate: string;
+  deliveredDate?: string;
+  receivedAt?: string;
+  notes?: string;
+  qrToken?: string;
+  createdAt: number;
+  updatedAt?: number;
+}
+
+export interface ParcelSenderSettings {
+  senderName: string;
+  senderAcademy: string;
+  senderAddressLine1: string;
+  senderAddressLine2: string;
+  senderAddressLine3: string;
+  senderAddressLine4?: string;
+  senderPhone: string;
+}
+
+export const DEFAULT_SENDER_DETAILS: ParcelSenderSettings = {
+  senderName: "D. Dineshkumar",
+  senderAcademy: "Agaram Dhinesh Online Academy",
+  senderAddressLine1: "No. 111/2, Pahalagamma,",
+  senderAddressLine2: "Udadelthotta,",
+  senderAddressLine3: "Galaha, Kandy.",
+  senderAddressLine4: "",
+  senderPhone: "0778054232"
+};
+
+export const getParcelSenderSettings = async (): Promise<ParcelSenderSettings> => {
+  const custom = await getData('parcelSenderSettings', null);
+  if (custom && (custom.senderName || custom.senderAddressLine1)) {
+    return {
+      senderName: custom.senderName || DEFAULT_SENDER_DETAILS.senderName,
+      senderAcademy: custom.senderAcademy || DEFAULT_SENDER_DETAILS.senderAcademy,
+      senderAddressLine1: custom.senderAddressLine1 || DEFAULT_SENDER_DETAILS.senderAddressLine1,
+      senderAddressLine2: custom.senderAddressLine2 || DEFAULT_SENDER_DETAILS.senderAddressLine2,
+      senderAddressLine3: custom.senderAddressLine3 || DEFAULT_SENDER_DETAILS.senderAddressLine3,
+      senderAddressLine4: custom.senderAddressLine4 || '',
+      senderPhone: custom.senderPhone || DEFAULT_SENDER_DETAILS.senderPhone
+    };
+  }
+  return DEFAULT_SENDER_DETAILS;
+};
+
+export const saveParcelSenderSettings = async (settings: ParcelSenderSettings): Promise<ParcelSenderSettings> => {
+  await saveData('parcelSenderSettings', settings);
+  window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'parcelSenderSettings', data: settings } }));
+  return settings;
+};
+
+export const getParcelDeliveries = async (): Promise<ParcelDelivery[]> => {
+  const data = await getData('parcelDeliveries', []);
+  const list = Array.isArray(data) ? data : [];
+  return list.map((item: ParcelDelivery) => {
+    if (!item) return item;
+    const hasTamilSender = item.senderAddressLine1 && /[\u0B80-\u0BFF]/.test(item.senderAddressLine1);
+    if (hasTamilSender || !item.senderAddressLine1) {
+      return {
+        ...item,
+        senderName: item.senderName && !/[\u0B80-\u0BFF]/.test(item.senderName) ? item.senderName : DEFAULT_SENDER_DETAILS.senderName,
+        senderAddressLine1: DEFAULT_SENDER_DETAILS.senderAddressLine1,
+        senderAddressLine2: DEFAULT_SENDER_DETAILS.senderAddressLine2,
+        senderAddressLine3: DEFAULT_SENDER_DETAILS.senderAddressLine3,
+        senderPhone: DEFAULT_SENDER_DETAILS.senderPhone
+      };
+    }
+    return item;
+  });
+};
+
+export const saveParcelDeliveries = async (deliveries: ParcelDelivery[]): Promise<ParcelDelivery[]> => {
+  const cleanList = Array.isArray(deliveries) ? deliveries.filter(Boolean) : [];
+  await saveData('parcelDeliveries', cleanList);
+  window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'parcelDeliveries', data: cleanList } }));
+  return cleanList;
+};
+
+export const getParcelDeliveryById = async (searchId: string): Promise<ParcelDelivery | null> => {
+  if (!searchId) return null;
+  const cleanId = String(searchId).trim();
+
+  // 1. Fast lookup from local memory/storage
+  try {
+    const localList = await getParcelDeliveries();
+    const found = localList.find(p => 
+      p.id === cleanId || 
+      p.trackingNumber === cleanId || 
+      p.studentRollNo === cleanId || 
+      p.rollNo === cleanId || 
+      p.qrToken === cleanId
+    );
+    if (found) return found;
+  } catch (_) {}
+
+  // 2. Direct Firestore Document & Collection query
+  if (isFirebaseConfigured) {
+    try {
+      // Direct doc ID fetch
+      const docRef = doc(db, 'parcelDeliveries', cleanId);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const item = { ...docSnap.data(), id: docSnap.id } as ParcelDelivery;
+        // Merge into local store
+        const current = await getParcelDeliveries();
+        if (!current.some(p => p.id === item.id)) {
+          saveParcelDeliveries([item, ...current]).catch(() => {});
+        }
+        return item;
+      }
+
+      // Check singletons snapshot
+      const singletonRef = doc(db, 'singletons', 'parcelDeliveries');
+      const singSnap = await getDoc(singletonRef);
+      if (singSnap.exists() && Array.isArray(singSnap.data()?.data)) {
+        const singList: ParcelDelivery[] = singSnap.data()?.data;
+        const singFound = singList.find(p => 
+          p.id === cleanId || 
+          p.trackingNumber === cleanId || 
+          p.studentRollNo === cleanId || 
+          p.rollNo === cleanId || 
+          p.qrToken === cleanId
+        );
+        if (singFound) {
+          return singFound;
+        }
+      }
+    } catch (e) {
+      console.warn("Error in getParcelDeliveryById from Firestore:", e);
+    }
+  }
+
+  return null;
+};
+
+export const addParcelDelivery = async (deliveryData: Partial<ParcelDelivery>): Promise<ParcelDelivery> => {
+  const current = await getParcelDeliveries();
+  const id = deliveryData.id || `parcel_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0];
+  
+  const newDelivery: ParcelDelivery = {
+    id,
+    trackingNumber: deliveryData.trackingNumber || `AGD-${Math.floor(100000 + Math.random() * 900000)}`,
+    studentId: deliveryData.studentId || '',
+    studentRollNo: String(deliveryData.studentRollNo || deliveryData.rollNo || '').trim(),
+    rollNo: String(deliveryData.studentRollNo || deliveryData.rollNo || '').trim(),
+    studentName: String(deliveryData.studentName || 'Student').trim(),
+    grade: deliveryData.grade || '',
+    phone: String(deliveryData.phone || '').trim(),
+    addressLine1: String(deliveryData.addressLine1 || '').trim(),
+    addressLine2: String(deliveryData.addressLine2 || '').trim(),
+    addressLine3: String(deliveryData.addressLine3 || '').trim(),
+    addressLine4: String(deliveryData.addressLine4 || '').trim(),
+    addressLines: (deliveryData.addressLines && deliveryData.addressLines.length > 0)
+      ? deliveryData.addressLines.map(l => String(l).trim()).filter(Boolean)
+      : [deliveryData.addressLine1, deliveryData.addressLine2, deliveryData.addressLine3, deliveryData.addressLine4].map(l => String(l || '').trim()).filter(Boolean),
+    fullAddress: (deliveryData.addressLines && deliveryData.addressLines.length > 0)
+      ? deliveryData.addressLines.filter(Boolean).join(', ')
+      : [deliveryData.addressLine1, deliveryData.addressLine2, deliveryData.addressLine3, deliveryData.addressLine4].filter(Boolean).join(', '),
+    itemsDescription: deliveryData.itemsDescription || 'டியூட் மற்றும் வினாத்தாள் பாடப் பொதி (Tute & Exam Materials)',
+    senderName: deliveryData.senderName || DEFAULT_SENDER_DETAILS.senderName,
+    senderAcademy: deliveryData.senderAcademy || DEFAULT_SENDER_DETAILS.senderAcademy,
+    senderAddressLine1: deliveryData.senderAddressLine1 || DEFAULT_SENDER_DETAILS.senderAddressLine1,
+    senderAddressLine2: deliveryData.senderAddressLine2 || DEFAULT_SENDER_DETAILS.senderAddressLine2,
+    senderAddressLine3: deliveryData.senderAddressLine3 || DEFAULT_SENDER_DETAILS.senderAddressLine3,
+    senderAddressLine4: deliveryData.senderAddressLine4 || DEFAULT_SENDER_DETAILS.senderAddressLine4 || '',
+    senderPhone: deliveryData.senderPhone || DEFAULT_SENDER_DETAILS.senderPhone,
+    status: deliveryData.status || 'dispatched',
+    dispatchedDate: deliveryData.dispatchedDate || dateStr,
+    deliveredDate: deliveryData.deliveredDate || '',
+    notes: deliveryData.notes || '',
+    qrToken: deliveryData.qrToken || Math.random().toString(36).substring(2, 10),
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+
+  const updated = [newDelivery, ...current];
+  await saveParcelDeliveries(updated);
+
+  // Direct collection doc write (indexed by id and tracking number)
+  if (isFirebaseConfigured) {
+    try {
+      setDoc(doc(db, 'parcelDeliveries', id), newDelivery, { merge: true }).catch(() => {});
+      if (newDelivery.trackingNumber) {
+        setDoc(doc(db, 'parcelDeliveries', newDelivery.trackingNumber), newDelivery, { merge: true }).catch(() => {});
+      }
+    } catch (_) {}
+  }
+
+  return newDelivery;
+};
+
+export const updateParcelDelivery = async (id: string, updates: Partial<ParcelDelivery>): Promise<ParcelDelivery[]> => {
+  const current = await getParcelDeliveries();
+  let updatedItem: ParcelDelivery | null = null;
+  const updated = current.map(item => {
+    if (item.id === id || item.trackingNumber === id) {
+      const merged = {
+        ...item,
+        ...updates,
+        updatedAt: Date.now()
+      };
+      updatedItem = merged;
+      return merged;
+    }
+    return item;
+  });
+
+  await saveParcelDeliveries(updated);
+
+  if (isFirebaseConfigured && updatedItem) {
+    try {
+      const realId = (updatedItem as ParcelDelivery).id || id;
+      const trk = (updatedItem as ParcelDelivery).trackingNumber;
+      setDoc(doc(db, 'parcelDeliveries', realId), updatedItem, { merge: true }).catch(() => {});
+      if (trk && trk !== realId) {
+        setDoc(doc(db, 'parcelDeliveries', trk), updatedItem, { merge: true }).catch(() => {});
+      }
+    } catch (_) {}
+  }
+
+  return updated;
+};
+
+export const deleteParcelDelivery = async (id: string): Promise<ParcelDelivery[]> => {
+  const current = await getParcelDeliveries();
+  const updated = current.filter(item => item.id !== id && item.trackingNumber !== id);
+  await saveParcelDeliveries(updated);
+
+  if (isFirebaseConfigured) {
+    try {
+      deleteDoc(doc(db, 'parcelDeliveries', id)).catch(() => {});
+    } catch (_) {}
+  }
+
+  return updated;
+};
+
 

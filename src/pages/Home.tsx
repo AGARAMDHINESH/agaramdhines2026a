@@ -98,6 +98,14 @@ export default function Home() {
   };
 
   useEffect(() => {
+    // Check if user scanned delivery QR with ?parcel_confirm=ID
+    const searchParams = new URLSearchParams(window.location.search);
+    const parcelId = searchParams.get('parcel_confirm') || searchParams.get('parcel');
+    if (parcelId) {
+      navigate(`/parcel-confirm/${parcelId}`, { replace: true });
+      return;
+    }
+
     // Check for existing session (Permanent Remember Login)
     const session = getUserSession();
     if (session && session.role) {
