@@ -47,6 +47,7 @@ import {
   RotateCcw
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import { checkObjectMatchesPhone, matchesPhoneSearch } from "../../lib/phoneUtils";
 
 export default function ParcelDeliveryPage() {
   const [parcels, setParcels] = useState<ParcelDelivery[]>([]);
@@ -601,7 +602,8 @@ export default function ParcelDeliveryPage() {
              (cleanQuery.length >= 3 && pRoll.includes(cleanQuery)) ||
              p.trackingNumber.toLowerCase().includes(query.toLowerCase()) || 
              p.studentRollNo.toLowerCase().includes(query.toLowerCase()) ||
-             p.studentName.toLowerCase().includes(query.toLowerCase());
+             p.studentName.toLowerCase().includes(query.toLowerCase()) ||
+             checkObjectMatchesPhone(p, query);
     });
 
     setTrackedParcel(found || null);
@@ -674,7 +676,7 @@ export default function ParcelDeliveryPage() {
       p.trackingNumber.toLowerCase().includes(cleanSearch) ||
       (cleanQueryNoPunct && cleanTracking.includes(cleanQueryNoPunct)) ||
       (cleanQueryNoPunct && cleanRoll.includes(cleanQueryNoPunct)) ||
-      (p.phone && p.phone.includes(cleanSearch));
+      checkObjectMatchesPhone(p, searchQuery);
 
     const matchesStatus = 
       filterStatus === "ALL" ? true : p.status === filterStatus;
@@ -861,7 +863,7 @@ export default function ParcelDeliveryPage() {
             </h2>
           </div>
           <p className="text-xs text-slate-300 mb-4 font-medium">
-            மாணவரின் <strong className="text-white">AGD டிராக்கிங் எண்</strong> (எ.கா: AGD-870750) அல்லது <strong className="text-white">ரோல் எண்ணை</strong> உள்ளிட்டு பார்சல் டெலிவரி செய்யப்பட்டுவிட்டதா அல்லது வழியில் உள்ளதா என்பதை உடனடியாகக் கண்டறியலாம்.
+            மாணவரின் <strong className="text-white">AGD டிராக்கிங் எண்</strong>, <strong className="text-white">ரோல் எண்</strong> அல்லது <strong className="text-white">தொலைபேசி எண் (Phone: +94..., 077..., 77...)</strong> உள்ளிட்டு பார்சல் டெலிவரி நிலையை உடனடியாகக் கண்டறியலாம்.
           </p>
 
           <form onSubmit={handleTrackSearch} className="flex flex-col sm:flex-row gap-2.5">
@@ -876,7 +878,7 @@ export default function ParcelDeliveryPage() {
                     handleClearTrackSearch();
                   }
                 }}
-                placeholder="AGD Tracking No (எ.கா: AGD-870750) அல்லது Roll No உள்ளிடவும்..."
+                placeholder="AGD Tracking No, Roll No அல்லது Phone (+94..., 077..., 77...) உள்ளிடவும்..."
                 className="w-full bg-slate-800/90 text-white placeholder-slate-400 text-xs sm:text-sm font-semibold pl-10 pr-10 py-3 rounded-xl border border-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/40 transition-all shadow-inner"
               />
               {trackingSearchInput && (

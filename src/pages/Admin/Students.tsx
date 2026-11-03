@@ -14,6 +14,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { toPng } from "html-to-image";
 import jsPDF from "jspdf";
 import autoTable from 'jspdf-autotable';
+import { matchesPhoneSearch, checkObjectMatchesPhone, normalizePhone } from "../../lib/phoneUtils";
 
 export default function Students() {
   const [view, setView] = useState<"menu" | "add" | "view" | "import" | "edit" | "view-id-pin">("menu");
@@ -51,7 +52,6 @@ export default function Students() {
     const sUserNoSpaces = sUser.replace(/[\s_\-\.]+/g, '');
     const sRoll = (s.rollNo || '').toString().toLowerCase().trim();
     const sId = (s.id || '').toString().toLowerCase().trim();
-    const sPhone = (s.phone || '').toString().replace(/[^0-9]/g, '');
     const sGuardian = (s.guardianName || '').toLowerCase();
 
     // Exact matches first
@@ -63,8 +63,10 @@ export default function Students() {
     if (sUser.includes(rawQuery) || sUserNoSpaces.includes(noSpaceQuery)) return true;
     if (sRoll.includes(rawQuery)) return true;
     if (sId.includes(rawQuery)) return true;
-    if (sPhone && sPhone.includes(rawQuery)) return true;
     if (sGuardian && sGuardian.includes(rawQuery)) return true;
+
+    // Comprehensive phone number match (+94..., 077..., 77..., with/without spaces and dashes)
+    if (checkObjectMatchesPhone(s, queryStr)) return true;
 
     return false;
   };
@@ -799,6 +801,7 @@ ${videoZoomUrl}
       "Roll No": s.rollNo || "",
       "Name": s.name,
       "Grade": s.grade || "",
+      "Phone": s.phone || "",
       "Username": s.username,
       "Password": s.password,
       "Guardian Name": s.guardianName || "",
@@ -836,11 +839,12 @@ ${videoZoomUrl}
     });
 
     const doc = new jsPDF();
-    const tableColumn = ["Roll No", "Name", "Grade", "Username", "Password"];
+    const tableColumn = ["Roll No", "Name", "Grade", "Phone", "Username", "Password"];
     const tableRows = filteredStudents.map(s => [
       s.rollNo || "",
       s.name,
       s.grade || "",
+      s.phone || "-",
       s.username,
       s.password
     ]);
@@ -2615,11 +2619,20 @@ ${videoZoomUrl}
                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Search Name, Roll No, Phone..."
+                  placeholder="Search Name, Roll No, Phone (+94..., 077..., 77...)..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 w-full transition-all"
+                  className="pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 w-full transition-all"
                 />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                    title="Clear Search"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
               </div>
 
               {/* Class Filter */}
@@ -3207,102 +3220,164 @@ ${videoZoomUrl}
         ? true
         : studentSubs.some((sub: string) => sub === filterSubject.toLowerCase());
 
-      const searchLow = searchQuery.toLowerCase().trim();
-      const isNumericSearch = /^\d+$/.test(searchLow);
-
-      const matchesSearch = searchQuery 
-        ? s.name?.toLowerCase().includes(searchLow) || 
-          s.id?.toString().toLowerCase().includes(searchLow) ||
-          s.rollNo?.toString().toLowerCase().includes(searchLow) ||
-          (isNumericSearch && s.rollNo?.toString().endsWith(searchLow)) ||
-          (isNumericSearch && s.id?.toString().endsWith(searchLow)) ||
-          s.username?.toString().toLowerCase().includes(searchLow) ||
-          s.phone?.toString().includes(searchLow)
-        : true;
-      return matchesClass && matchesSubject && matchesSearch;
+      return matchesClass && matchesSubject && checkStudentMatchesSearch(s, searchQuery);
     });
 
     return (
-      <div className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center">
+      <div className="p-4 sm:p-6 space-y-4">
+        {/* Top Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200">
+          <div className="flex items-center gap-3">
             <button
               onClick={() => setView("menu")}
-              className="mr-4 text-gray-600 hover:text-gray-900"
+              className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors flex items-center justify-center"
+              title="Back to Menu"
             >
-              ← Back
+              <ArrowLeft size={18} />
             </button>
-            <h2 className="text-xl font-bold text-gray-800">Student IDs & PINs</h2>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Student IDs & PINs</h2>
+                <span className="bg-indigo-50 text-indigo-700 font-bold text-xs px-2.5 py-1 rounded-full border border-indigo-100">
+                  {filteredStudents.length} Students
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                மாணவர் பயனர் ஐடி, கடவுச்சொல் மற்றும் QR குறியீடுகளைத் தேடுதல் மற்றும் பதிவிறக்கம் செய்தல்
+              </p>
+            </div>
           </div>
-          <div className="flex gap-2">
+
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleExportCSV}
-              className="bg-emerald-600 text-white rounded-md px-3 py-1.5 text-sm whitespace-nowrap hover:bg-emerald-700 flex items-center gap-2"
+              className="bg-emerald-600 text-white rounded-xl px-3.5 py-2 text-xs font-bold whitespace-nowrap hover:bg-emerald-700 flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
               title="Export CSV (Excel)"
             >
-              <Download size={16} /> CSV
+              <Download size={15} /> CSV (Excel)
             </button>
             <button
               onClick={handleExportPDF}
-              className="bg-red-600 text-white rounded-md px-3 py-1.5 text-sm whitespace-nowrap hover:bg-red-700 flex items-center gap-2"
+              className="bg-rose-600 text-white rounded-xl px-3.5 py-2 text-xs font-bold whitespace-nowrap hover:bg-rose-700 flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
               title="Export PDF"
             >
-              <FileText size={16} /> PDF
+              <FileText size={15} /> PDF
             </button>
           </div>
         </div>
+
+        {/* Search & Filter Toolbar */}
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col sm:flex-row items-center gap-3">
+          {/* Search Input supporting Name, Roll No, Phone (+94, 077, 77), Username */}
+          <div className="relative flex-1 w-full">
+            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search Name, Roll No, Phone (+94 77..., 077..., 77...), Username..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 w-full transition-all text-slate-900 font-medium"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                title="Clear Search"
+              >
+                <X size={15} />
+              </button>
+            )}
+          </div>
+
+          {/* Class Filter Dropdown */}
+          <select
+            value={filterClass}
+            onChange={(e) => {
+              setFilterClass(e.target.value);
+              setFilterSubject("");
+            }}
+            className="py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-700 font-bold w-full sm:w-auto"
+          >
+            <option value="">All Classes ({students.length})</option>
+            <option value="unassigned" className="text-red-600 font-bold">Unassigned</option>
+            {GRADES.map((grade) => (
+              <option key={grade} value={grade}>
+                {grade}
+              </option>
+            ))}
+          </select>
+        </div>
         
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        {/* Student Accounts Table */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-slate-200">
+              <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">QR Code</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Roll No</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PIN/Password</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">QR Code</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Name</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Class</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Roll No</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Phone / Mobile</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Username</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">PIN / Password</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white divide-y divide-slate-100">
                 {filteredStudents.map((student) => (
-                  <tr key={student.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div id={`qr-${student.id}`} className="bg-white p-1 inline-block">
-                        <QRCodeSVG value={student.id} size={40} />
+                  <tr key={student.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="px-5 py-3.5 whitespace-nowrap">
+                      <div id={`qr-${student.id}`} className="bg-white p-1 inline-block border border-slate-200 rounded-lg shadow-2xs">
+                        <QRCodeSVG value={student.id} size={38} />
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{student.grade}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{student.rollNo || '-'}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{student.username}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-blue-600">{student.password}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex gap-2">
+                    <td className="px-5 py-3.5 whitespace-nowrap text-xs sm:text-sm font-bold text-slate-900">{student.name}</td>
+                    <td className="px-5 py-3.5 whitespace-nowrap text-xs font-semibold text-slate-600">
+                      <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-700">
+                        {student.grade || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 whitespace-nowrap text-xs font-mono font-bold text-slate-700">{student.rollNo || '-'}</td>
+                    <td className="px-5 py-3.5 whitespace-nowrap text-xs font-bold text-slate-800">
+                      {student.phone ? (
+                        <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 border border-emerald-200/60 px-2 py-0.5 rounded-md font-mono">
+                          📱 {student.phone}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 font-normal italic">-</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5 whitespace-nowrap text-xs font-mono text-indigo-700 font-bold bg-indigo-50/30 px-2 rounded">
+                      {student.username}
+                    </td>
+                    <td className="px-5 py-3.5 whitespace-nowrap text-xs font-mono text-blue-600 font-bold bg-blue-50/40 px-2 rounded">
+                      {student.password}
+                    </td>
+                    <td className="px-5 py-3.5 whitespace-nowrap text-xs font-medium">
+                      <div className="flex gap-1.5">
                         <button 
                           onClick={() => handleDownloadQrImage(student.id, student.name)}
-                          className="text-indigo-600 hover:text-indigo-900 flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded"
+                          className="text-indigo-600 hover:text-indigo-900 flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg font-bold text-[11px] transition-colors cursor-pointer"
                           title="Download Image"
                         >
-                          <Download size={14} /> IMG
+                          <Download size={13} /> IMG
                         </button>
                         <button 
                           onClick={() => handleDownloadQrPdf(student.id, student.name)}
-                          className="text-emerald-600 hover:text-emerald-900 flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded"
+                          className="text-emerald-600 hover:text-emerald-900 flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-lg font-bold text-[11px] transition-colors cursor-pointer"
                           title="Download PDF"
                         >
-                          <Download size={14} /> PDF
+                          <Download size={13} /> PDF
                         </button>
                       </div>
                     </td>
                   </tr>
                 ))}
-                {students.length === 0 && (
+                {filteredStudents.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-6 py-4 text-center text-sm text-gray-500">
-                      No students found.
+                    <td colSpan={8} className="px-6 py-10 text-center text-xs sm:text-sm text-slate-400">
+                      {searchQuery ? `No students found matching "${searchQuery}".` : "No students found."}
                     </td>
                   </tr>
                 )}

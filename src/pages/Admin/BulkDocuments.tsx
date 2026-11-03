@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { getStudents, getClasses, getAdminSettings } from "../../lib/db";
 import { Printer, CheckSquare, Square, Search, Award, FileText, CreditCard, User } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import { checkObjectMatchesPhone } from "../../lib/phoneUtils";
 
 export default function BulkDocuments() {
   const [students, setStudents] = useState<any[]>([]);
@@ -26,7 +27,8 @@ export default function BulkDocuments() {
     const matchesSearch = searchQuery 
       ? s.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
         s.id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.rollNo?.toLowerCase().includes(searchQuery.toLowerCase())
+        s.rollNo?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        checkObjectMatchesPhone(s, searchQuery)
       : true;
     return matchesGrade && matchesSearch;
   });

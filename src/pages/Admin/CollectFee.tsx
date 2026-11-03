@@ -3,6 +3,7 @@ import { getStudents, saveStudents, getFees, saveFees, getClasses, getAdminSetti
 import { Search, Calendar, CreditCard, User, BookOpen, DollarSign, CheckCircle, Printer, Download, Copy, FileText, Image as ImageIcon, Share2, Plus, Trash2, CheckSquare, Square } from "lucide-react";
 import { toPng, toBlob } from 'html-to-image';
 import jsPDF from 'jspdf';
+import { checkObjectMatchesPhone } from '../../lib/phoneUtils';
 
 const MONTH_LIST = [
   { index: '01', en: 'Jan', ta: 'ஜனவரி', full: 'January' },
@@ -172,7 +173,8 @@ export default function CollectFee() {
           ? s.name?.toLowerCase().includes(searchLow) || 
             s.student_id?.toString().toLowerCase().includes(searchLow) ||
             s.id?.toString().toLowerCase().includes(searchLow) ||
-            s.rollNo?.toString().toLowerCase().includes(searchLow)
+            s.rollNo?.toString().toLowerCase().includes(searchLow) ||
+            checkObjectMatchesPhone(s, searchQuery)
           : true;
         const matchesGrade = selectedGrade 
           ? s.grade?.toString().trim().toLowerCase() === selectedGrade.toString().trim().toLowerCase() 
