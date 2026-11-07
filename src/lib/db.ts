@@ -99,6 +99,55 @@ export const unmarkStudentDeleted = (identifiers: (string | number | undefined |
   } catch (_) {}
 };
 
+export const getDeletedParcelsList = (): string[] => {
+  try {
+    const raw = safeGetItem('parcelDeliveries_deleted');
+    return raw ? JSON.parse(raw) : [];
+  } catch (_) {
+    return [];
+  }
+};
+
+export const markParcelDeleted = (identifiers: (string | number | undefined | null)[]) => {
+  const ignoreWords = new Set(['', 'undefined', 'null', 'none']);
+  const cleanList = identifiers
+    .map(i => (i !== undefined && i !== null ? String(i).trim().toLowerCase() : ''))
+    .filter(i => i && !ignoreWords.has(i));
+  if (cleanList.length === 0) return;
+
+  try {
+    const currentList = getDeletedParcelsList();
+    let changed = false;
+    cleanList.forEach(id => {
+      if (!currentList.includes(id)) {
+        currentList.push(id);
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      const capped = currentList.slice(-2000);
+      safeSetItem('parcelDeliveries_deleted', JSON.stringify(capped));
+      if (isFirebaseConfigured) {
+        setDoc(doc(db, 'singletons', 'parcelDeliveries_deleted'), { data: capped, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+      }
+    }
+  } catch (_) {}
+};
+
+export const isParcelMatchDeleted = (parcel: any, deletedSet: Set<string>): boolean => {
+  if (!parcel || deletedSet.size === 0) return false;
+  const pId = String(parcel.id || '').trim().toLowerCase();
+  const pTrk = String(parcel.trackingNumber || '').trim().toLowerCase();
+  const pToken = String(parcel.qrToken || '').trim().toLowerCase();
+
+  if (pId && deletedSet.has(pId)) return true;
+  if (pTrk && deletedSet.has(pTrk)) return true;
+  if (pToken && deletedSet.has(pToken)) return true;
+
+  return false;
+};
+
 const setupRealtimeListener = (key: string) => {
   if (!isFirebaseConfigured || activeListeners[key]) return;
   try {
@@ -110,6 +159,10 @@ const setupRealtimeListener = (key: string) => {
         if (key === 'students' && Array.isArray(serverData)) {
           const dSet = new Set(getDeletedStudentsList());
           serverData = serverData.filter((s: any) => !isStudentMatchDeleted(s, dSet));
+        }
+        if (key === 'parcelDeliveries' && Array.isArray(serverData)) {
+          const { clean } = deduplicateParcels(serverData);
+          serverData = clean;
         }
         window.dispatchEvent(new CustomEvent('db_updated', { detail: { key, data: serverData } }));
       }
@@ -442,6 +495,10 @@ export const getData = async (key: string, defaultValue: any) => {
               const dSet = new Set(getDeletedStudentsList());
               data = data.filter((s: any) => !isStudentMatchDeleted(s, dSet));
             }
+            if (key === 'parcelDeliveries' && Array.isArray(data)) {
+              const { clean } = deduplicateParcels(data);
+              data = clean;
+            }
             return data;
           }
         } catch (singErr: any) {
@@ -466,6 +523,10 @@ export const getData = async (key: string, defaultValue: any) => {
               if (key === 'students') {
                 const dSet = new Set(getDeletedStudentsList());
                 colData = colData.filter((s: any) => !isStudentMatchDeleted(s, dSet));
+              }
+              if (key === 'parcelDeliveries' && Array.isArray(colData)) {
+                const { clean } = deduplicateParcels(colData as any);
+                colData = clean as any;
               }
               if (colData.length > 0) {
                 // Keep singleton in sync
@@ -508,6 +569,10 @@ export const getData = async (key: string, defaultValue: any) => {
         const dSet = new Set(getDeletedStudentsList());
         return parsed.filter((s: any) => !isStudentMatchDeleted(s, dSet));
       }
+      if (key === 'parcelDeliveries' && Array.isArray(parsed)) {
+        const { clean } = deduplicateParcels(parsed);
+        return clean;
+      }
       return parsed;
     }
   } catch (e) {
@@ -520,7 +585,11 @@ export const getData = async (key: string, defaultValue: any) => {
 
 // Direct Database Saver - writes directly to Cloud Database and local store
 export const saveData = async (key: string, data: any) => {
-  const cleanData = JSON.parse(JSON.stringify(data ?? null));
+  let cleanData = JSON.parse(JSON.stringify(data ?? null));
+  if (key === 'parcelDeliveries' && Array.isArray(cleanData)) {
+    const { clean } = deduplicateParcels(cleanData);
+    cleanData = clean;
+  }
   const now = Date.now();
 
   recordWriteOperation(1);
@@ -4526,10 +4595,116 @@ export const saveParcelSenderSettings = async (settings: ParcelSenderSettings): 
   return settings;
 };
 
+/**
+ * Deduplicates parcel deliveries while strictly preserving original records and QR codes.
+ * - Earliest records / records with primary "parcel_" ID are prioritized.
+ * - Removes duplicates by matching trackingNumber or studentRollNo+grade.
+ * - Discards records marked in parcelDeliveries_deleted.
+ */
+export const deduplicateParcels = (parcels: any[]): { clean: ParcelDelivery[]; removedCount: number } => {
+  if (!Array.isArray(parcels) || parcels.length === 0) {
+    return { clean: [], removedCount: 0 };
+  }
+
+  const deletedList = getDeletedParcelsList();
+  const deletedSet = new Set(deletedList.map(d => String(d).trim().toLowerCase()));
+
+  // 1. Sort to guarantee earliest original records come first:
+  // - Prefer items whose ID starts with "parcel_" (original primary id)
+  // - Prefer items with smaller createdAt timestamp (original creation)
+  const sorted = [...parcels].sort((a, b) => {
+    const aIsPrimary = a.id?.startsWith('parcel_') ? 1 : 0;
+    const bIsPrimary = b.id?.startsWith('parcel_') ? 1 : 0;
+    if (aIsPrimary !== bIsPrimary) return bIsPrimary - aIsPrimary;
+
+    const timeA = typeof a.createdAt === 'number' ? a.createdAt : 0;
+    const timeB = typeof b.createdAt === 'number' ? b.createdAt : 0;
+    return timeA - timeB;
+  });
+
+  const seenIds = new Set<string>();
+  const seenTracking = new Set<string>();
+  const seenStudentBatches = new Set<string>();
+  const clean: ParcelDelivery[] = [];
+  let removedCount = 0;
+
+  for (const item of sorted) {
+    if (!item) continue;
+
+    const id = String(item.id || '').trim();
+    const idLower = id.toLowerCase();
+    const trk = String(item.trackingNumber || '').trim().toUpperCase();
+    const trkLower = trk.toLowerCase();
+    const qrToken = String(item.qrToken || '').trim().toLowerCase();
+
+    // Check if marked deleted
+    if (
+      (idLower && deletedSet.has(idLower)) ||
+      (trkLower && deletedSet.has(trkLower)) ||
+      (qrToken && deletedSet.has(qrToken))
+    ) {
+      removedCount++;
+      continue;
+    }
+
+    // Check duplicate ID
+    if (id && seenIds.has(id)) {
+      removedCount++;
+      continue;
+    }
+
+    // Check duplicate Tracking Number (e.g. Firestore double write)
+    if (trk && seenTracking.has(trk)) {
+      removedCount++;
+      continue;
+    }
+
+    // Check duplicate student receipt within the same grade/batch
+    const roll = String(item.studentRollNo || item.rollNo || '').trim().toLowerCase();
+    const name = String(item.studentName || '').trim().toLowerCase();
+    const grade = String(item.grade || '').trim().toLowerCase();
+
+    let studentKey = '';
+    if (roll && roll !== '—' && roll !== '-' && roll !== 'n/a') {
+      studentKey = `roll:${roll}_grade:${grade}`;
+    } else if (name) {
+      const phoneDigits = String(item.phone || '').replace(/\D/g, '');
+      studentKey = `name:${name}_phone:${phoneDigits}_grade:${grade}`;
+    }
+
+    if (studentKey && seenStudentBatches.has(studentKey)) {
+      removedCount++;
+      continue;
+    }
+
+    // Valid unique original parcel
+    if (id) seenIds.add(id);
+    if (trk) seenTracking.add(trk);
+    if (studentKey) seenStudentBatches.add(studentKey);
+    clean.push(item);
+  }
+
+  // Sort back to newest first for standard list display
+  clean.sort((a, b) => {
+    const timeA = typeof a.createdAt === 'number' ? a.createdAt : 0;
+    const timeB = typeof b.createdAt === 'number' ? b.createdAt : 0;
+    return timeB - timeA;
+  });
+
+  return { clean, removedCount };
+};
+
 export const getParcelDeliveries = async (): Promise<ParcelDelivery[]> => {
   const data = await getData('parcelDeliveries', []);
   const list = Array.isArray(data) ? data : [];
-  return list.map((item: ParcelDelivery) => {
+  const { clean, removedCount } = deduplicateParcels(list);
+
+  // If duplicates were pruned, sync the clean data to database so it stays clean
+  if (removedCount > 0) {
+    saveParcelDeliveries(clean).catch(() => {});
+  }
+
+  return clean.map((item: ParcelDelivery) => {
     if (!item) return item;
     const hasTamilSender = item.senderAddressLine1 && /[\u0B80-\u0BFF]/.test(item.senderAddressLine1);
     if (hasTamilSender || !item.senderAddressLine1) {
@@ -4547,10 +4722,11 @@ export const getParcelDeliveries = async (): Promise<ParcelDelivery[]> => {
 };
 
 export const saveParcelDeliveries = async (deliveries: ParcelDelivery[]): Promise<ParcelDelivery[]> => {
-  const cleanList = Array.isArray(deliveries) ? deliveries.filter(Boolean) : [];
-  await saveData('parcelDeliveries', cleanList);
-  window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'parcelDeliveries', data: cleanList } }));
-  return cleanList;
+  const rawList = Array.isArray(deliveries) ? deliveries.filter(Boolean) : [];
+  const { clean } = deduplicateParcels(rawList);
+  await saveData('parcelDeliveries', clean);
+  window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'parcelDeliveries', data: clean } }));
+  return clean;
 };
 
 export const getParcelDeliveryById = async (searchId: string): Promise<ParcelDelivery | null> => {
@@ -4655,13 +4831,10 @@ export const addParcelDelivery = async (deliveryData: Partial<ParcelDelivery>): 
   const updated = [newDelivery, ...current];
   await saveParcelDeliveries(updated);
 
-  // Direct collection doc write (indexed by id and tracking number)
+  // Direct collection doc write using primary ID only (prevents collection duplication)
   if (isFirebaseConfigured) {
     try {
       setDoc(doc(db, 'parcelDeliveries', id), newDelivery, { merge: true }).catch(() => {});
-      if (newDelivery.trackingNumber) {
-        setDoc(doc(db, 'parcelDeliveries', newDelivery.trackingNumber), newDelivery, { merge: true }).catch(() => {});
-      }
     } catch (_) {}
   }
 
@@ -4689,11 +4862,7 @@ export const updateParcelDelivery = async (id: string, updates: Partial<ParcelDe
   if (isFirebaseConfigured && updatedItem) {
     try {
       const realId = (updatedItem as ParcelDelivery).id || id;
-      const trk = (updatedItem as ParcelDelivery).trackingNumber;
       setDoc(doc(db, 'parcelDeliveries', realId), updatedItem, { merge: true }).catch(() => {});
-      if (trk && trk !== realId) {
-        setDoc(doc(db, 'parcelDeliveries', trk), updatedItem, { merge: true }).catch(() => {});
-      }
     } catch (_) {}
   }
 
@@ -4702,13 +4871,59 @@ export const updateParcelDelivery = async (id: string, updates: Partial<ParcelDe
 
 export const deleteParcelDelivery = async (id: string): Promise<ParcelDelivery[]> => {
   const current = await getParcelDeliveries();
+  const target = current.find(item => item.id === id || item.trackingNumber === id);
+
+  // Mark all identifiers as permanently deleted so they never reappear
+  const idsToMark: string[] = [id];
+  if (target) {
+    if (target.id) idsToMark.push(target.id);
+    if (target.trackingNumber) idsToMark.push(target.trackingNumber);
+    if (target.qrToken) idsToMark.push(target.qrToken);
+  }
+  markParcelDeleted(idsToMark);
+
   const updated = current.filter(item => item.id !== id && item.trackingNumber !== id);
   await saveParcelDeliveries(updated);
 
   if (isFirebaseConfigured) {
     try {
       deleteDoc(doc(db, 'parcelDeliveries', id)).catch(() => {});
+      if (target?.trackingNumber && target.trackingNumber !== id) {
+        deleteDoc(doc(db, 'parcelDeliveries', target.trackingNumber)).catch(() => {});
+      }
     } catch (_) {}
+  }
+
+  return updated;
+};
+
+export const deleteMultipleParcelDeliveries = async (ids: string[]): Promise<ParcelDelivery[]> => {
+  if (!Array.isArray(ids) || ids.length === 0) return getParcelDeliveries();
+  const current = await getParcelDeliveries();
+  const idSet = new Set(ids.map(i => String(i).trim()));
+
+  const targets = current.filter(item => idSet.has(item.id) || idSet.has(item.trackingNumber));
+  const idsToMark: string[] = [];
+  targets.forEach(t => {
+    if (t.id) idsToMark.push(t.id);
+    if (t.trackingNumber) idsToMark.push(t.trackingNumber);
+    if (t.qrToken) idsToMark.push(t.qrToken);
+  });
+  ids.forEach(i => idsToMark.push(i));
+  markParcelDeleted(idsToMark);
+
+  const updated = current.filter(item => !idSet.has(item.id) && !idSet.has(item.trackingNumber));
+  await saveParcelDeliveries(updated);
+
+  if (isFirebaseConfigured) {
+    targets.forEach(t => {
+      try {
+        if (t.id) deleteDoc(doc(db, 'parcelDeliveries', t.id)).catch(() => {});
+        if (t.trackingNumber && t.trackingNumber !== t.id) {
+          deleteDoc(doc(db, 'parcelDeliveries', t.trackingNumber)).catch(() => {});
+        }
+      } catch (_) {}
+    });
   }
 
   return updated;

@@ -5,6 +5,8 @@ import {
   addParcelDelivery, 
   updateParcelDelivery, 
   deleteParcelDelivery, 
+  deleteMultipleParcelDeliveries,
+  deduplicateParcels,
   getStudents, 
   getClasses, 
   ParcelDelivery, 
@@ -44,7 +46,8 @@ import {
   PackageSearch,
   Truck,
   AlertCircle,
-  RotateCcw
+  RotateCcw,
+  ShieldAlert
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { checkObjectMatchesPhone, matchesPhoneSearch } from "../../lib/phoneUtils";
@@ -477,12 +480,8 @@ export default function ParcelDeliveryPage() {
 
         const dataUrl = await toPng(sheet, {
           quality: 0.98,
-          pixelRatio: 2,
-          backgroundColor: "#ffffff",
-          width: 794,
-          height: 1123,
-          canvasWidth: 794 * 2,
-          canvasHeight: 1123 * 2
+          pixelRatio: 2.5,
+          backgroundColor: "#ffffff"
         });
 
         pdf.addImage(dataUrl, "PNG", 0, 0, 210, 297, undefined, "FAST");
@@ -497,7 +496,7 @@ export default function ParcelDeliveryPage() {
     }
   };
 
-  // Bulk Generation for a Grade
+  // Bulk Generation for a Grade (Duplicate-protected)
   const handleBulkGenerate = async () => {
     if (!bulkGrade) {
       alert("தயவுசெய்து ஒரு தரத்தைத் (Grade) தேர்ந்தெடுக்கவும்.");
@@ -514,14 +513,41 @@ export default function ParcelDeliveryPage() {
       return;
     }
 
-    const confirmMsg = `${bulkGrade}-ல் உள்ள ${targetStudents.length} மாணவர்களுக்கும் ஒரே கிளிக்கில் பார்சல் ரசீதுகளை உருவாக்க விரும்புகிறீர்களா?\n\nDo you want to generate parcel receipts for all ${targetStudents.length} students?`;
+    const currentParcels = await getParcelDeliveries();
+    const existingRollSet = new Set(
+      currentParcels
+        .map(p => (p.studentRollNo || p.rollNo || '').trim().toLowerCase())
+        .filter(r => r && r !== '-' && r !== '—' && r !== 'n/a')
+    );
+    const existingIdSet = new Set(
+      currentParcels
+        .map(p => (p.studentId || '').trim())
+        .filter(Boolean)
+    );
+
+    // Filter to only students who do NOT already have a parcel receipt in this grade
+    const newStudentsToGenerate = targetStudents.filter(st => {
+      const roll = (st.rollNo || st.username || '').trim().toLowerCase();
+      const sId = String(st.id || '').trim();
+      const alreadyExists = (roll && existingRollSet.has(roll)) || (sId && existingIdSet.has(sId));
+      return !alreadyExists;
+    });
+
+    if (newStudentsToGenerate.length === 0) {
+      alert(`தேர்ந்தெடுக்கப்பட்ட தரத்தில் (${bulkGrade}) உள்ள அனைத்து (${targetStudents.length}) மாணவர்களுக்கும் ஏற்கனவே பார்சல் ரசீதுகள் உருவாக்கப்பட்டுவிட்டன!\nடூப்ளிகேட்கள் தவிர்க்கப்பட்டன.`);
+      return;
+    }
+
+    const confirmMsg = newStudentsToGenerate.length === targetStudents.length
+      ? `${bulkGrade}-ல் உள்ள ${targetStudents.length} மாணவர்களுக்கும் புதிய பார்சல் ரசீதுகளை உருவாக்க விரும்புகிறீர்களா?`
+      : `${bulkGrade}-ல் உள்ள ${targetStudents.length} மாணவர்களில் ஏற்கனவே ${targetStudents.length - newStudentsToGenerate.length} பேருக்கு ரசீது உள்ளது. மீதமுள்ள ${newStudentsToGenerate.length} புதிய மாணவர்களுக்கு மட்டும் ரசீதுகளை உருவாக்கலாமா?`;
     if (!window.confirm(confirmMsg)) return;
 
     try {
       setLoading(true);
       const newItems: ParcelDelivery[] = [];
 
-      for (const st of targetStudents) {
+      for (const st of newStudentsToGenerate) {
         let line1 = "";
         let line2 = "";
         let line3 = "";
@@ -564,17 +590,59 @@ export default function ParcelDeliveryPage() {
         });
       }
 
-      const currentParcels = await getParcelDeliveries();
-      await saveParcelDeliveries([...newItems, ...currentParcels]);
+      const merged = deduplicateParcels([...newItems, ...currentParcels]).clean;
+      await saveParcelDeliveries(merged);
       
       setShowBulkGenerateModal(false);
-      alert(`வெற்றிகரமாக ${newItems.length} மாணவர்களுக்கு பார்சல் ரசீதுகள் உருவாக்கப்பட்டன!`);
+      alert(`வெற்றிகரமாக ${newItems.length} மாணவர்களுக்கு புதிய பார்சல் ரசீதுகள் உருவாக்கப்பட்டன!`);
       loadData();
     } catch (err: any) {
       console.error("Error bulk generating:", err);
       alert("பிழை: " + (err?.message || err));
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Deduplicate existing parcels preserving original records & QR codes
+  const handleRemoveDuplicates = async () => {
+    try {
+      setLoading(true);
+      const current = await getParcelDeliveries();
+      const { clean, removedCount } = deduplicateParcels(current);
+      if (removedCount === 0) {
+        alert(`டூப்ளிகேட் பதிவுகள் எதுவும் இல்லை! தற்போது உள்ள அனைத்து (${clean.length}) பார்சல் ரசீதுகளும் தனித்தன்மை வாய்ந்தவை.`);
+        setParcels(clean);
+        return;
+      }
+
+      const confirmMsg = `கண்டறியப்பட்ட ${removedCount} டூப்ளிகேட் பதிவுகளை நீக்க விரும்புகிறீர்களா?\n\n• ஏற்கனவே உள்ள அசல் ரசீதுகள்: ${clean.length}\n• நீக்கப்படும் டூப்ளிகேட்கள்: ${removedCount}\n\nகுறிப்பு: ஏற்கனவே அச்சிடப்பட்ட அல்லது உருவாக்கப்பட்ட அசல் QR குறியீடுகள் மற்றும் tracking எண்கள் துளியும் மாறாது!`;
+      if (window.confirm(confirmMsg)) {
+        await saveParcelDeliveries(clean);
+        setParcels(clean);
+        alert(`வெற்றிகரமாக ${removedCount} டூப்ளிகேட் பதிவுகள் நீக்கப்பட்டன!\nதற்போது மொத்தம் ${clean.length} அசல் பார்சல் ரசீதுகள் உள்ளன.`);
+      }
+    } catch (err: any) {
+      alert("பிழை: " + (err?.message || err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Delete selected parcels permanently
+  const handleDeleteSelected = async () => {
+    if (selectedIds.length === 0) return;
+    if (window.confirm(`தெரிவு செய்யப்பட்ட ${selectedIds.length} பார்சல்களையும் நிரந்தரமாக நீக்க விரும்புகிறீர்களா?\n(Are you sure you want to delete ${selectedIds.length} selected parcels?)`)) {
+      try {
+        setLoading(true);
+        await deleteMultipleParcelDeliveries(selectedIds);
+        setSelectedIds([]);
+        loadData();
+      } catch (err: any) {
+        alert("பிழை: " + (err?.message || err));
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -746,8 +814,8 @@ export default function ParcelDeliveryPage() {
             padding: 6mm 5mm !important;
             display: grid !important;
             grid-template-columns: 98mm 98mm !important;
-            grid-template-rows: 139mm 139mm !important;
-            gap: 7mm 4mm !important;
+            grid-template-rows: 140mm 140mm !important;
+            gap: 5mm 4mm !important;
             position: relative !important;
             background: #fff !important;
             overflow: hidden !important;
@@ -801,6 +869,15 @@ export default function ParcelDeliveryPage() {
             >
               <Layers size={15} />
               வகுப்பு பல்க் ஜெனரேட்டர்
+            </button>
+
+            <button
+              onClick={handleRemoveDuplicates}
+              className="flex items-center gap-1.5 bg-rose-700 hover:bg-rose-800 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs transition-all shadow-sm"
+              title="டூப்ளிகேட் ரசீதுகளைக் கண்டறிந்து நீக்க (அசல் QR குறியீடுகள் மாறாது)"
+            >
+              <ShieldAlert size={15} />
+              டூப்ளிகேட் நீக்குக
             </button>
 
             <button
@@ -1086,6 +1163,14 @@ export default function ParcelDeliveryPage() {
               {selectedIds.length} பார்சல்கள் தெரிவு செய்யப்பட்டுள்ளன
             </span>
             <div className="flex items-center gap-2">
+              <button
+                onClick={handleDeleteSelected}
+                className="text-rose-700 bg-rose-100 hover:bg-rose-200 font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 text-xs transition-colors"
+                title="தெரிவு செய்யப்பட்ட பார்சல்களை நிரந்தரமாக நீக்க"
+              >
+                <Trash2 size={13} />
+                Delete Selected ({selectedIds.length})
+              </button>
               <button
                 onClick={() => setSelectedIds([])}
                 className="text-slate-600 hover:text-slate-900 font-semibold px-2 py-1 rounded"
@@ -1685,8 +1770,8 @@ export default function ParcelDeliveryPage() {
                     padding: "6mm 5mm",
                     display: "grid",
                     gridTemplateColumns: "98mm 98mm",
-                    gridTemplateRows: "139mm 139mm",
-                    gap: "7mm 4mm",
+                    gridTemplateRows: "140mm 140mm",
+                    gap: "5mm 4mm",
                     overflow: "hidden",
                     boxSizing: "border-box",
                     backgroundColor: "#ffffff"
@@ -1696,8 +1781,8 @@ export default function ParcelDeliveryPage() {
                   {pageGroup.map((parcelItem) => (
                     <div 
                       key={parcelItem.id} 
-                      className="w-[98mm] h-[139mm] max-w-[98mm] max-h-[139mm] min-h-0 min-w-0 flex items-center justify-center overflow-hidden"
-                      style={{ width: "98mm", height: "139mm", maxHeight: "139mm", boxSizing: "border-box" }}
+                      className="w-[98mm] h-[140mm] max-w-[98mm] max-h-[140mm] min-h-0 min-w-0 flex items-center justify-center overflow-hidden"
+                      style={{ width: "98mm", height: "140mm", maxHeight: "140mm", boxSizing: "border-box" }}
                     >
                       <ParcelReceiptCard 
                         parcel={parcelItem} 
