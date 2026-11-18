@@ -1,10 +1,18 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { db, isFirebaseConfigured } from '../lib/firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { updateAppBadge, showSystemNotification } from '../lib/badgeManager';
 import { safeGetItem, safeSetItem } from '../lib/safeStorage';
+import { doesItemMatchStudentSubjects } from '../components/RecordingSection';
 
-export function useRealtimeNotifications(grade: string | undefined, onNewNotification?: (notif: any) => void) {
+export function useRealtimeNotifications(
+  grade: string | undefined,
+  onNewNotification?: (notif: any) => void,
+  studentSubjects?: string[]
+) {
+  const subjectsRef = useRef<string[] | undefined>(studentSubjects);
+  subjectsRef.current = studentSubjects;
+
   useEffect(() => {
     if (!isFirebaseConfigured || !grade) return;
 
@@ -37,6 +45,19 @@ export function useRealtimeNotifications(grade: string | undefined, onNewNotific
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
           const notification: any = { ...change.doc.data(), id: change.doc.id };
+
+          // Strict subject isolation for subject-targeted Zoom class notifications
+          const hasTargetSubject = Boolean(
+            (notification.subject && String(notification.subject).trim()) ||
+            (Array.isArray(notification.subjects) && notification.subjects.some((s: any) => String(s || '').trim()))
+          );
+          if (notification.type === 'zoom_class' && hasTargetSubject) {
+            const subs = subjectsRef.current;
+            if (Array.isArray(subs) && !doesItemMatchStudentSubjects(notification, subs)) {
+              return;
+            }
+          }
+
           const isRealtime = notification.createdAt && notification.createdAt >= activeSessionTime;
           
           if (isRealtime) {

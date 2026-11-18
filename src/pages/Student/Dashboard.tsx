@@ -584,7 +584,7 @@ export default function StudentDashboard() {
         navigator.vibrate([200, 100, 200]);
       }
     }
-  });
+  }, enrolledClasses);
 
   useEffect(() => {
     // Keep app badge in sync with unattended exams count
@@ -779,7 +779,20 @@ export default function StudentDashboard() {
       setCourses(deduplicateCourses(allCourses.filter(filterBySubjectAndGrade)));
       setCourseMaterials(allCourseMaterials.filter(filterBySubjectAndGrade));
       
-      setZoomLinks(allZoomLinks.filter(filterBySubjectAndGrade));
+      setZoomLinks(allZoomLinks.filter((z: any) => {
+        if (!z) return false;
+        const targetStudentGrade = freshStudentData.grade || "தரம் 10";
+        if (!doesItemMatchGrade(z, targetStudentGrade)) return false;
+
+        const hasExplicitSubject = Boolean(
+          (z.subject && String(z.subject).trim()) ||
+          (Array.isArray(z.subjects) && z.subjects.some((s: any) => String(s || '').trim()))
+        );
+        if (hasExplicitSubject) {
+          return doesItemMatchStudentSubjects(z, studentSubjectsArray);
+        }
+        return true;
+      }));
       
       setYoutubeLinks(allYoutubeLinks.filter(filterBySubjectAndGrade));
       setWebPosts(allWebPosts.filter(filterBySubjectAndGrade));
@@ -2127,14 +2140,16 @@ export default function StudentDashboard() {
                   </h3>
                   <div className="space-y-3">
                     {zoomLinks
-                      .filter(z => !isZoomLinkExpired(z) && enrolledClasses.includes(z.subject))
+                      .filter(z => !isZoomLinkExpired(z) && doesItemMatchStudentSubjects(z, enrolledClasses))
                       .sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime())
                       .slice(0, 3) // Show next 3
                       .map(z => (
                         <div key={z.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-center p-4 bg-slate-50 rounded-xl border border-slate-100 gap-3">
                           <div>
                             <p className="font-bold text-slate-800">{z.title}</p>
-                            <p className="text-sm font-medium text-indigo-600 mb-1">{z.subject}</p>
+                            <p className="text-sm font-medium text-indigo-600 mb-1">
+                              {Array.isArray(z.subjects) && z.subjects.length > 0 ? z.subjects.join(', ') : z.subject}
+                            </p>
                             <div className="flex flex-wrap items-center gap-2">
                               <div className="flex items-center gap-1.5 text-xs text-slate-500">
                                 <Clock size={13} className="text-slate-400" />
@@ -2156,7 +2171,7 @@ export default function StudentDashboard() {
                           </button>
                         </div>
                       ))}
-                    {zoomLinks.filter(z => enrolledClasses.includes(z.subject)).length === 0 && (
+                    {zoomLinks.filter(z => !isZoomLinkExpired(z) && doesItemMatchStudentSubjects(z, enrolledClasses)).length === 0 && (
                       <div className="text-center py-6 bg-slate-50 rounded-xl border border-slate-100 border-dashed">
                         <Calendar className="mx-auto h-8 w-8 text-slate-300 mb-2" />
                         <p className="text-slate-500 text-sm">No upcoming classes scheduled.</p>
@@ -2224,8 +2239,8 @@ export default function StudentDashboard() {
                     (c.grade === studentData.grade || c.grade?.toString().replace(/[^0-9]/g, '') === studentData.grade?.toString().replace(/[^0-9]/g, '')) && 
                     String(c.subject || "").trim().toLowerCase() === subLower
                   ));
-                  const subjectTimetable = timetable.filter(t => String(t.subject || "").trim().toLowerCase() === subLower);
-                  const subjectZoomLinks = zoomLinks.filter(z => String(z.subject || "").trim().toLowerCase() === subLower);
+                  const subjectTimetable = timetable.filter(t => areSubjectsMatching(t.subject, subjectName));
+                  const subjectZoomLinks = zoomLinks.filter(z => !isZoomLinkExpired(z) && doesItemMatchStudentSubjects(z, [subjectName]));
                   
                   if (!isEnrolled && enrolledClasses.length > 0) return null;
 
@@ -2548,7 +2563,7 @@ export default function StudentDashboard() {
                           {subjectTimetable.length > 0 ? (
                             <div className="mt-6 pt-4 border-t border-slate-100 space-y-3">
                               {subjectTimetable.map(cls => {
-                                const hasZoomLink = zoomLinks.some(z => z.grade === cls.grade && z.subject === cls.subject);
+                                const hasZoomLink = zoomLinks.some(z => !isZoomLinkExpired(z) && doesItemMatchGrade(z, cls.grade) && doesItemMatchStudentSubjects(z, [cls.subject]));
                                 return (
                                 <div key={cls.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
                                   <span className="font-bold text-slate-700 flex items-center gap-2">
@@ -4850,8 +4865,15 @@ export default function StudentDashboard() {
                 {zoomLinks.filter(link => !isZoomLinkExpired(link)).map(link => (
                   <div key={link.id} className="bg-white p-5 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center border border-slate-200 shadow-sm hover:border-indigo-200 hover:shadow-md transition-all gap-4">
                     <div className="flex flex-col">
-                      <span className="font-bold text-slate-800 text-lg truncate mr-2">{link.title}</span>
-                      <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="font-bold text-slate-800 text-lg truncate">{link.title}</span>
+                        {(link.subjects?.length > 0 || link.subject) && (
+                          <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                            {Array.isArray(link.subjects) && link.subjects.length > 0 ? link.subjects.join(', ') : link.subject}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
                         <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100">{new Date(link.datetime).toLocaleString()}</span>
                         <CountdownTimer targetDate={link.datetime} />
                         <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">

@@ -4290,7 +4290,7 @@ export const getNotifications = (grade: string) => {
   return null;
 };
 
-export const addNotification = async (notification: { grade: string, title: string, message: string, type: string, createdAt: string }) => {
+export const addNotification = async (notification: { grade: string, title: string, message: string, type: string, createdAt: string, subject?: string, subjects?: string[] }) => {
   if (isFirebaseConfigured) {
     const docRef = doc(collection(db, 'notifications'));
     await setDoc(docRef, { ...notification, id: docRef.id });
