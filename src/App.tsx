@@ -52,6 +52,8 @@ import StudentDashboard from "./pages/Student/Dashboard";
 import StaffDashboard from "./pages/Staff/Dashboard";
 import ParcelDeliveryPage from "./pages/Admin/ParcelDelivery";
 import ParcelConfirmationPage from "./pages/ParcelConfirmationPage";
+import PublicTermMarksSubmit from "./pages/PublicTermMarksSubmit";
+import TermMarksManagement from "./pages/Admin/TermMarksManagement";
 import OurStory from "./pages/OurStory";
 import Careers from "./pages/Careers";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
@@ -80,6 +82,7 @@ export default function App() {
         <Route path="/exams/:id" element={<PublicExamPortal />} />
         <Route path="/tamil-asan" element={<TamilAsanPage />} />
         <Route path="/parcel-confirm/:id" element={<ParcelConfirmationPage />} />
+        <Route path="/term-marks-submit" element={<PublicTermMarksSubmit />} />
 
         <Route path="/admin" element={<AdminDashboard />}>
           <Route index element={<AdminHome />} />
@@ -99,6 +102,7 @@ export default function App() {
           <Route path="tamil-asan-hub" element={<TamilAsanHub />} />
           <Route path="term-exam" element={<TermExam />} />
           <Route path="exam-marks" element={<ExamMarks />} />
+          <Route path="term-marks-management" element={<TermMarksManagement />} />
           <Route path="grade-performance" element={<GradePerformanceDashboard />} />
           <Route path="exam-settings" element={<ExamSettings />} />
           <Route path="live-classes" element={<LiveClasses />} />

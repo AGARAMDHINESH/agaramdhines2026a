@@ -610,7 +610,7 @@ export const saveData = async (key: string, data: any) => {
       await setDoc(singletonRef, { data: cleanData, updatedAt: now }, { merge: false });
 
       // If key is students/forms/staffs/courses/etc., sync ALL individual documents cleanly without truncation
-      if (Array.isArray(cleanData) && ['forms', 'students', 'staffs', 'employeeTasks', 'dailyWorkUploads', 'zoomLinks', 'formSubmissions', 'courses', 'courseMaterials', 'youtubeLinks', 'fees', 'classes', 'subjects', 'parcelDeliveries'].includes(key)) {
+      if (Array.isArray(cleanData) && ['forms', 'students', 'staffs', 'employeeTasks', 'dailyWorkUploads', 'zoomLinks', 'formSubmissions', 'courses', 'courseMaterials', 'youtubeLinks', 'fees', 'classes', 'subjects', 'parcelDeliveries', 'studentTermMarkEntries'].includes(key)) {
         for (const item of cleanData) {
           if (item && (item.id || item.name)) {
             const docId = String(item.id || item.name).trim();
@@ -1759,6 +1759,167 @@ export const deleteStudent = async (id: string | number, username?: string, roll
   }
 
   // 7. Dispatch UI update AFTER Firestore deletion has completed
+  window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'students', data: updatedStudents } }));
+
+  return updatedStudents;
+};
+
+/**
+ * Permanently deletes multiple students at once from both local cache and Firebase Firestore
+ * (individual student documents in 'students' collection, 'singletons/students', and 'singletons/students_deleted').
+ */
+export const deleteMultipleStudents = async (
+  targets: Array<{ id?: string | number; username?: string; rollNo?: string; studentCode?: string } | string | number>
+) => {
+  if (!Array.isArray(targets) || targets.length === 0) {
+    return await getStudents();
+  }
+
+  const ignoreWords = new Set(['', 'student', 'undefined', 'null', 'null_entry', 'user', 'none']);
+  const idsToTombstone = new Set<string>();
+  const directDocIdsToDelete = new Set<string>();
+
+  const addIdentifier = (val: any, isDocId = false) => {
+    if (val !== undefined && val !== null) {
+      const raw = String(val).trim();
+      const clean = raw.toLowerCase();
+      if (clean && !ignoreWords.has(clean)) {
+        idsToTombstone.add(clean);
+        if (isDocId && raw) directDocIdsToDelete.add(raw);
+      }
+    }
+  };
+
+  targets.forEach((t) => {
+    if (typeof t === 'string' || typeof t === 'number') {
+      addIdentifier(t, true);
+    } else if (t && typeof t === 'object') {
+      addIdentifier(t.id, true);
+      addIdentifier(t.username);
+      addIdentifier(t.rollNo);
+      addIdentifier(t.studentCode);
+    }
+  });
+
+  // 1. Load current full list so we capture all associated identifiers of every target student
+  let currentStudents: any[] = [];
+  try {
+    const rawLocal = safeGetItem('students');
+    if (rawLocal) currentStudents = JSON.parse(rawLocal);
+  } catch (_) {}
+
+  if (!currentStudents.length) {
+    currentStudents = await getStudents();
+  }
+
+  const matchesTarget = (s: any): boolean => {
+    if (!s) return false;
+    const sId = String(s.id || '').trim().toLowerCase();
+    const sUser = String(s.username || '').trim().toLowerCase();
+    const sRoll = String(s.rollNo || '').trim().toLowerCase();
+    const sCode = String(s.studentCode || '').trim().toLowerCase();
+    return (
+      (sId && idsToTombstone.has(sId)) ||
+      (sUser && idsToTombstone.has(sUser)) ||
+      (sRoll && idsToTombstone.has(sRoll)) ||
+      (sCode && idsToTombstone.has(sCode))
+    );
+  };
+
+  currentStudents.forEach((s: any) => {
+    if (matchesTarget(s)) {
+      addIdentifier(s.id, true);
+      addIdentifier(s.username);
+      addIdentifier(s.rollNo);
+      addIdentifier(s.studentCode);
+    }
+  });
+
+  const tombstoneArray = Array.from(idsToTombstone);
+
+  // 2. Mark all in local tombstone blacklist
+  markStudentDeleted(tombstoneArray);
+
+  // 3. Filter remaining students (zero loss of non-selected students)
+  const updatedStudents = currentStudents.filter((s: any) => !matchesTarget(s));
+
+  // 4. Update local storage immediately
+  try {
+    safeSetItem('students', JSON.stringify(updatedStudents));
+    safeSetItem('students_lastSavedAt', String(Date.now()));
+  } catch (_) {}
+
+  // 5. Clear active student session if deleted
+  try {
+    const session = getUserSession();
+    if (session) {
+      const sessId = String(session?.id || session?.student_id || '').trim().toLowerCase();
+      const sessUser = String(session?.username || '').trim().toLowerCase();
+      const sessRoll = String(session?.rollNo || '').trim().toLowerCase();
+      if (idsToTombstone.has(sessId) || idsToTombstone.has(sessUser) || idsToTombstone.has(sessRoll)) {
+        clearUserSession();
+      }
+    }
+  } catch (_) {}
+
+  // 6. Permanent Firebase Firestore Deletion (individual docs + singletons)
+  if (isFirebaseConfigured) {
+    try {
+      const firestoreDocIds = new Set<string>(Array.from(directDocIdsToDelete));
+
+      // Query Firestore 'students' collection once and find ALL matching document IDs
+      try {
+        const querySnapshot = await getDocs(collection(db, 'students'));
+        querySnapshot.forEach((docSnap) => {
+          const docId = docSnap.id.trim().toLowerCase();
+          const docData = docSnap.data() || {};
+          const dataId = String(docData.id || '').trim().toLowerCase();
+          const dataUser = String(docData.username || '').trim().toLowerCase();
+          const dataRoll = String(docData.rollNo || '').trim().toLowerCase();
+          const dataCode = String(docData.studentCode || '').trim().toLowerCase();
+
+          if (
+            idsToTombstone.has(docId) ||
+            (dataId && idsToTombstone.has(dataId)) ||
+            (dataUser && idsToTombstone.has(dataUser)) ||
+            (dataRoll && idsToTombstone.has(dataRoll)) ||
+            (dataCode && idsToTombstone.has(dataCode))
+          ) {
+            firestoreDocIds.add(docSnap.id);
+          }
+        });
+      } catch (colErr) {
+        console.warn("Error querying students collection for bulk deletion:", colErr);
+      }
+
+      // Delete Firestore docs in controlled parallel batches so large grades erase cleanly
+      const allDocIds = Array.from(firestoreDocIds).filter(Boolean);
+      const BATCH_SIZE = 25;
+      for (let i = 0; i < allDocIds.length; i += BATCH_SIZE) {
+        const chunk = allDocIds.slice(i, i + BATCH_SIZE);
+        await Promise.allSettled(
+          chunk.map((docId) => deleteDoc(doc(db, 'students', docId)))
+        );
+      }
+
+      // Save cleaned list to singleton 'students' & tombstones to 'students_deleted'
+      const allDeleted = getDeletedStudentsList();
+      await Promise.allSettled([
+        setDoc(doc(db, 'singletons', 'students'), {
+          data: updatedStudents,
+          updatedAt: Date.now()
+        }, { merge: false }),
+        setDoc(doc(db, 'singletons', 'students_deleted'), {
+          data: allDeleted,
+          updatedAt: Date.now()
+        }, { merge: false })
+      ]);
+    } catch (fbErr: any) {
+      console.warn("Firebase deleteMultipleStudents warning:", fbErr?.message || fbErr);
+    }
+  }
+
+  // 7. Dispatch UI update after Firestore deletion completes
   window.dispatchEvent(new CustomEvent('db_updated', { detail: { key: 'students', data: updatedStudents } }));
 
   return updatedStudents;
@@ -3295,6 +3456,114 @@ export const saveTimeTable = (timetable: any) => saveData('timetable', timetable
 export const getExamMarks = () => getData('examMarks', []);
 export const saveExamMarks = (marks: any) => saveData('examMarks', marks);
 
+export interface StudentTermMarkEntry {
+  id: string;
+  studentId: string;
+  officialRollNo: string;
+  submittedRollNo: string;
+  studentName: string;
+  submittedName: string;
+  phone: string;
+  officialPhone?: string;
+  grade: string;
+  subject: string;
+  term1Marks: string;
+  term2Marks: string;
+  term3Marks: string;
+  totalMarksPerTerm: number;
+  matched: boolean;
+  matchMethod: 'roll+phone' | 'roll-fuzzy+phone' | 'roll' | 'phone' | 'unmatched';
+  phoneVerified?: boolean;
+  submittedAt: string;
+  updatedAt: string;
+}
+
+export const getStudentTermMarkEntries = async (): Promise<StudentTermMarkEntry[]> => {
+  const data = await getData('studentTermMarkEntries', []);
+  return Array.isArray(data) ? data : [];
+};
+
+export const saveStudentTermMarkEntries = async (entries: StudentTermMarkEntry[]) => {
+  const clean = Array.isArray(entries) ? entries.filter(Boolean) : [];
+  await saveData('studentTermMarkEntries', clean);
+  return clean;
+};
+
+export const deleteStudentTermMarkEntry = async (id: string) => {
+  const current = await getStudentTermMarkEntries();
+  const updated = current.filter((e) => e.id !== id);
+  await saveStudentTermMarkEntries(updated);
+  if (isFirebaseConfigured && id) {
+    try {
+      await deleteDoc(doc(db, 'studentTermMarkEntries', String(id)));
+    } catch (_) {}
+  }
+  return updated;
+};
+
+/**
+ * Non-destructively syncs a student's Term 1 / Term 2 / Term 3 marks into examMarks
+ * so they immediately appear inside the Student Panel (Marks & Official Report Card)
+ * without touching or erasing any other existing exam marks.
+ */
+export const syncTermMarkEntryToExamMarks = async (entry: StudentTermMarkEntry) => {
+  if (!entry || (!entry.studentId && !entry.officialRollNo)) return;
+
+  const existingMarks: any[] = (await getExamMarks()) || [];
+  let updatedMarks = [...existingMarks];
+  const today = new Date().toISOString().split('T')[0];
+  const subj = (entry.subject || 'தமிழ்').trim();
+  const targetStudentId = entry.studentId || entry.officialRollNo;
+  const totalPerTerm = Number(entry.totalMarksPerTerm) || 100;
+
+  const termsToSync: Array<{ val: string; examLabel: string }> = [
+    { val: entry.term1Marks, examLabel: '1st Term Examination (முதல் தவணை)' },
+    { val: entry.term2Marks, examLabel: '2nd Term Examination (இரண்டாம் தவணை)' },
+    { val: entry.term3Marks, examLabel: '3rd Term Examination (மூன்றாம் தவணை)' }
+  ];
+
+  let changed = false;
+
+  termsToSync.forEach(({ val, examLabel }) => {
+    const trimmed = String(val ?? '').trim();
+    if (trimmed === '') return;
+    const numericMark = parseFloat(trimmed);
+    if (isNaN(numericMark)) return;
+
+    // Remove only an exact duplicate for this same student + term exam + subject
+    updatedMarks = updatedMarks.filter(
+      (m: any) =>
+        !(
+          (m.studentId === targetStudentId ||
+            (entry.officialRollNo && m.rollNo && String(m.rollNo).trim().toLowerCase() === String(entry.officialRollNo).trim().toLowerCase())) &&
+          m.exam === examLabel &&
+          String(m.subject || '').trim().toLowerCase() === subj.toLowerCase()
+        )
+    );
+
+    updatedMarks.push({
+      id: `term_${entry.id}_${examLabel.slice(0, 3)}`,
+      studentId: targetStudentId,
+      rollNo: entry.officialRollNo,
+      studentName: entry.studentName,
+      grade: entry.grade || '',
+      exam: examLabel,
+      subject: subj,
+      obtained: numericMark,
+      total: totalPerTerm,
+      remarks: 'தவணை மதிப்பெண் பதிவு (Term Marks Portal)',
+      date: today,
+      source: 'term_marks_portal',
+      termEntryId: entry.id
+    });
+    changed = true;
+  });
+
+  if (changed) {
+    await saveExamMarks(updatedMarks);
+  }
+};
+
 export const getWebPosts = () => getData('webPosts', []);
 export const saveWebPosts = (posts: any) => saveData('webPosts', posts);
 
@@ -4377,7 +4646,7 @@ export const ALL_BACKUP_COLLECTIONS = [
   'incomeExpense', 'grades', 'timetable', 'examMarks', 'webPosts',
   'examSettings', 'announcements', 'behaviourRecords', 'questionPapers',
   'chatMessages', 'forms', 'formSubmissions', 'employeeTasks', 'dailyWorkUploads',
-  'parcelDeliveries', 'parcelSenderSettings'
+  'parcelDeliveries', 'parcelSenderSettings', 'studentTermMarkEntries'
 ];
 
 export interface BackupOptions {

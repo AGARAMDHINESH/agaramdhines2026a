@@ -56,7 +56,8 @@ import { toPng } from "html-to-image";
 import jsPDF from "jspdf";
 import RecordingSection, { deduplicateCourses, areSubjectsMatching, doesItemMatchGrade, doesItemMatchStudentSubjects, normalizeGradeString, getCanonicalSubjectCategory, filterSubjectsForStudentGrade, isSubjectValidForGrade } from "../../components/RecordingSection";
 
-import { getCourses, getCourseMaterials, getZoomLinks, isZoomLinkExpired, formatZoomLinkRemaining, getYoutubeLinks, getFees, getAttendance, saveAttendance, getClassLinks, getCourseWebsiteLinks, getHomework, getStaffs, getTimeTable, getStudents, saveStudents, getAdminSettings, getClasses, getExamMarks, saveExamMarks, getWebPosts, getStudentMenuLabels, DEFAULT_STUDENT_MENU_LABELS, StudentMenuLabels, getTermExams, getExamSubmissions, saveExamSubmissions, getParcelDeliveries, updateParcelDelivery, ParcelDelivery } from "../../lib/db";
+import { getCourses, getCourseMaterials, getZoomLinks, isZoomLinkExpired, formatZoomLinkRemaining, getYoutubeLinks, getFees, getAttendance, saveAttendance, getClassLinks, getCourseWebsiteLinks, getHomework, getStaffs, getTimeTable, getStudents, saveStudents, getAdminSettings, getClasses, getExamMarks, saveExamMarks, getWebPosts, getStudentMenuLabels, DEFAULT_STUDENT_MENU_LABELS, StudentMenuLabels, getTermExams, getExamSubmissions, saveExamSubmissions, getParcelDeliveries, updateParcelDelivery, ParcelDelivery, getStudentTermMarkEntries, StudentTermMarkEntry } from "../../lib/db";
+import { areRollNumbersMatching } from "../../lib/rollUtils";
 import { formatEmbedUrl } from "../Admin/TermExam";
 import { getUserSession, saveUserSession, clearUserSession } from "../../lib/authSession";
 import CountdownTimer from "../../components/CountdownTimer";
@@ -176,6 +177,7 @@ export default function StudentDashboard() {
   });
   const [isSubmittingMarks, setIsSubmittingMarks] = useState(false);
   const [studentParcels, setStudentParcels] = useState<ParcelDelivery[]>([]);
+  const [studentTermMarks, setStudentTermMarks] = useState<StudentTermMarkEntry[]>([]);
   const [showParcelModal, setShowParcelModal] = useState(false);
   const [isUpdatingParcel, setIsUpdatingParcel] = useState(false);
 
@@ -864,8 +866,25 @@ export default function StudentDashboard() {
       setExamMarks(allExamMarks.filter((m: any) => 
         m.studentId === freshStudentData.id || 
         m.studentId === freshStudentData.student_id ||
+        (freshStudentData.rollNo && areRollNumbersMatching(m.rollNo, freshStudentData.rollNo)) ||
+        (freshStudentData.username && areRollNumbersMatching(m.rollNo, freshStudentData.username)) ||
         m.studentName === freshStudentData.name
       ));
+
+      try {
+        const allTermEntries = await getStudentTermMarkEntries();
+        const myTermEntries = (allTermEntries || []).filter((entry: StudentTermMarkEntry) => {
+          if (!entry) return false;
+          if (freshStudentData.id && entry.studentId === String(freshStudentData.id)) return true;
+          if (freshStudentData.student_id && entry.studentId === String(freshStudentData.student_id)) return true;
+          if (freshStudentData.rollNo && (areRollNumbersMatching(entry.officialRollNo, freshStudentData.rollNo) || areRollNumbersMatching(entry.submittedRollNo, freshStudentData.rollNo))) return true;
+          if (freshStudentData.username && areRollNumbersMatching(entry.officialRollNo, freshStudentData.username)) return true;
+          return false;
+        });
+        setStudentTermMarks(myTermEntries);
+      } catch (err) {
+        console.error("Failed to load student term marks:", err);
+      }
       setClasses(allClasses);
       setAdminSettings(settings);
       
@@ -919,7 +938,7 @@ export default function StudentDashboard() {
 
     const handleDbUpdate = (e: CustomEvent) => {
       const key = e.detail?.key;
-      if (['courseMaterials', 'courses', 'zoomLinks', 'youtubeLinks', 'webPosts', 'students', 'classes', 'staffs', 'timetable', 'examMarks', 'homework', 'termExams', 'examSubmissions', 'parcelDeliveries'].includes(key)) {
+      if (['courseMaterials', 'courses', 'zoomLinks', 'youtubeLinks', 'webPosts', 'students', 'classes', 'staffs', 'timetable', 'examMarks', 'studentTermMarkEntries', 'homework', 'termExams', 'examSubmissions', 'parcelDeliveries'].includes(key)) {
         loadData();
       }
     };
@@ -1216,7 +1235,11 @@ export default function StudentDashboard() {
 
   // Official Report Card Data for Student
   const currentStudentReportCard = useMemo<ReportCardData>(() => {
-    const studentMarksList = examMarks.filter(m => m.studentId === studentData?.id);
+    const studentMarksList = examMarks.filter(m =>
+      m.studentId === studentData?.id ||
+      (studentData?.student_id && m.studentId === studentData.student_id) ||
+      (studentData?.rollNo && areRollNumbersMatching(m.rollNo, studentData.rollNo))
+    );
     const subjects = studentMarksList.map(m => {
       const obt = Number(m.obtained) || 0;
       const tot = Number(m.total) || 100;
@@ -4254,7 +4277,63 @@ export default function StudentDashboard() {
                 </button>
               </div>
 
-              {examMarks.length === 0 ? (
+              {studentTermMarks.length > 0 && (
+                <div className="mb-8 bg-white rounded-2xl border-2 border-emerald-200 overflow-hidden shadow-sm">
+                  <div className="bg-gradient-to-r from-emerald-700 to-indigo-800 text-white px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-base sm:text-lg font-black flex items-center gap-2">
+                        <Award size={18} className="text-emerald-300" />
+                        எனது தவணை மதிப்பெண்கள் (1st, 2nd &amp; 3rd Term Marks)
+                      </h3>
+                      <p className="text-xs text-emerald-100 mt-0.5">
+                        உங்கள் Roll Number ({studentData?.rollNo}) அடிப்படையில் பதிவு செய்யப்பட்ட தவணை மதிப்பெண்கள்
+                      </p>
+                    </div>
+                  </div>
+                  <div className="p-4 sm:p-5 overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-sm">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-700 text-xs font-black uppercase">
+                          <th className="border border-slate-300 px-3 py-2.5">பாடம் (Subject)</th>
+                          <th className="border border-slate-300 px-3 py-2.5 text-center">1-ஆம் தவணை</th>
+                          <th className="border border-slate-300 px-3 py-2.5 text-center">2-ஆம் தவணை</th>
+                          <th className="border border-slate-300 px-3 py-2.5 text-center bg-emerald-100 text-emerald-900">3-ஆம் தவணை</th>
+                          <th className="border border-slate-300 px-3 py-2.5 text-center">சராசரி (Avg)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {studentTermMarks.map((tm) => {
+                          const nums = [tm.term1Marks, tm.term2Marks, tm.term3Marks]
+                            .map((v) => (v !== "" && v !== undefined && v !== null ? Number(v) : NaN))
+                            .filter((n) => !isNaN(n));
+                          const avg = nums.length > 0 ? Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 10) / 10 : null;
+                          return (
+                            <tr key={tm.id} className="hover:bg-slate-50">
+                              <td className="border border-slate-200 px-3 py-2.5 font-bold text-slate-900">
+                                {tm.subject}
+                              </td>
+                              <td className="border border-slate-200 px-3 py-2.5 text-center font-bold text-slate-700">
+                                {tm.term1Marks !== "" ? `${tm.term1Marks} / 100` : "—"}
+                              </td>
+                              <td className="border border-slate-200 px-3 py-2.5 text-center font-bold text-slate-700">
+                                {tm.term2Marks !== "" ? `${tm.term2Marks} / 100` : "—"}
+                              </td>
+                              <td className="border border-slate-200 px-3 py-2.5 text-center font-black text-emerald-800 bg-emerald-50/70">
+                                {tm.term3Marks !== "" ? `${tm.term3Marks} / 100` : "—"}
+                              </td>
+                              <td className="border border-slate-200 px-3 py-2.5 text-center font-black text-indigo-700">
+                                {avg !== null ? `${avg}%` : "—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {examMarks.length === 0 && studentTermMarks.length === 0 ? (
                 <div className="text-center py-16 text-slate-500 bg-slate-50 rounded-2xl border border-slate-200 border-dashed">
                   <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
                     <Award size={32} className="text-slate-300" />
@@ -4262,7 +4341,7 @@ export default function StudentDashboard() {
                   <p className="text-lg font-bold text-slate-400">No results published yet.</p>
                   <p className="text-sm">Results will appear here once the administrator uploads them.</p>
                 </div>
-              ) : (
+              ) : examMarks.length === 0 ? null : (
                 <div className="space-y-8">
                   {Object.entries(examMarks.reduce((acc: any, mark: any) => {
                     if (!acc[mark.exam]) acc[mark.exam] = [];

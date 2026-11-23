@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { getStudents, saveStudents, deleteStudent, getClasses, getAdminSettings, getSubjects, sanitizeSubjectList, areSubjectsMatching, isGradeMatching } from "../../lib/db";
+import { getStudents, saveStudents, deleteStudent, deleteMultipleStudents, getClasses, getAdminSettings, getSubjects, sanitizeSubjectList, areSubjectsMatching, isGradeMatching } from "../../lib/db";
 import { isSubjectValidForGrade, getCanonicalSubjectCategory } from "../../components/RecordingSection";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { secondaryAuth } from "../../lib/firebase";
@@ -41,6 +41,8 @@ export default function Students() {
   const [copyingLiveCard, setCopyingLiveCard] = useState(false);
   const [showBulkIdModal, setShowBulkIdModal] = useState(false);
   const [isGeneratingBulkIdPdf, setIsGeneratingBulkIdPdf] = useState(false);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   // Chunk array into groups of 8 for A4 portrait sheets (2 columns x 4 rows)
   const chunkIntoEights = (arr: any[]) => {
@@ -824,6 +826,52 @@ ${videoZoomUrl}
         console.error("Error deleting student:", err);
         alert("Error deleting student: " + (err.message || err));
       }
+    }
+  };
+
+  const toggleSelectStudent = (studentId: string) => {
+    setSelectedStudentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(studentId)) {
+        next.delete(studentId);
+      } else {
+        next.add(studentId);
+      }
+      return next;
+    });
+  };
+
+  const handleBulkDeleteSelected = async (filteredList: any[]) => {
+    const selectedStudents = students.filter((s) => s && selectedStudentIds.has(String(s.id)));
+    if (selectedStudents.length === 0) {
+      alert("நீக்குவதற்கு மாணவர்கள் எவரும் தெரிவு செய்யப்படவில்லை. (No students selected)");
+      return;
+    }
+
+    const gradeLabel = filterClass ? ` (${filterClass})` : "";
+    const confirmMsg =
+      `தெரிவு செய்யப்பட்ட ${selectedStudents.length} மாணவர்களையும்${gradeLabel} ஆப் மற்றும் Firebase டேட்டாபேஸிலிருந்து நிரந்தரமாக நீக்க விரும்புகிறீர்களா?\n\n` +
+      `Are you sure you want to permanently erase ${selectedStudents.length} selected student(s) from both the App and Firebase Database?\n\n` +
+      `குறிப்பு: தெரிவு செய்யப்படாத மற்ற மாணவர்களின் விபரங்கள் எதுவும் அழியாது.`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsBulkDeleting(true);
+    try {
+      const targetIdsLower = new Set(selectedStudents.map((s) => String(s.id).toLowerCase()));
+      setStudents((prev) => prev.filter((s) => s && !targetIdsLower.has(String(s.id).toLowerCase())));
+
+      const updatedStudents = await deleteMultipleStudents(selectedStudents);
+      setStudents(updatedStudents);
+      setSelectedStudentIds(new Set());
+      alert(`✅ வெற்றிகரமாக ${selectedStudents.length} மாணவர்கள் ஆப் மற்றும் Firebase டேட்டாபேஸிலிருந்து நிரந்தரமாக நீக்கப்பட்டனர்!`);
+    } catch (err: any) {
+      console.error("Bulk delete error:", err);
+      alert("பல்க் நீக்கத்தில் பிழை: " + (err?.message || err));
+      const refreshed = await getStudents();
+      setStudents(refreshed);
+    } finally {
+      setIsBulkDeleting(false);
     }
   };
 
@@ -2789,6 +2837,86 @@ ${videoZoomUrl}
             </div>
           </div>
         
+          {/* Bulk Selection Toolbar (Select All / Unselect All / Permanent Bulk Delete) */}
+          {filteredStudents.length > 0 && (() => {
+            const filteredIds = filteredStudents.map((s) => String(s.id));
+            const allFilteredSelected =
+              filteredIds.length > 0 && filteredIds.every((id) => selectedStudentIds.has(id));
+            const selectedFilteredCount = filteredIds.filter((id) => selectedStudentIds.has(id)).length;
+            const totalSelectedCount = selectedStudentIds.size;
+
+            return (
+              <div className={`mb-5 p-3.5 sm:p-4 rounded-2xl border transition-all flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+                totalSelectedCount > 0
+                  ? "bg-rose-50/80 border-rose-200 shadow-sm"
+                  : "bg-slate-50/90 border-slate-200"
+              }`}>
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Master Select All / Unselect All Checkbox */}
+                  <label className="inline-flex items-center gap-2.5 cursor-pointer select-none bg-white border border-slate-300 hover:border-indigo-400 px-3.5 py-2 rounded-xl shadow-2xs transition-all">
+                    <input
+                      type="checkbox"
+                      checked={allFilteredSelected}
+                      onChange={() => {
+                        if (allFilteredSelected) {
+                          setSelectedStudentIds((prev) => {
+                            const next = new Set(prev);
+                            filteredIds.forEach((id) => next.delete(id));
+                            return next;
+                          });
+                        } else {
+                          setSelectedStudentIds((prev) => {
+                            const next = new Set(prev);
+                            filteredIds.forEach((id) => next.add(id));
+                            return next;
+                          });
+                        }
+                      }}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
+                    />
+                    <span className="text-xs sm:text-sm font-bold text-slate-800">
+                      {allFilteredSelected
+                        ? `அனைத்தும் தெரிவு செய்யப்பட்டது (${filteredStudents.length})`
+                        : `Select All / அனைத்தையும் தெரிவு செய் (${filteredStudents.length}${filterClass ? ` - ${filterClass}` : ""})`}
+                    </span>
+                  </label>
+
+                  {totalSelectedCount > 0 && (
+                    <span className="text-xs font-black text-rose-700 bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-full">
+                      ✓ {totalSelectedCount} மாணவர்கள் தெரிவு {selectedFilteredCount !== totalSelectedCount ? `(இப்பக்கத்தில் ${selectedFilteredCount})` : ""}
+                    </span>
+                  )}
+                </div>
+
+                {totalSelectedCount > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedStudentIds(new Set())}
+                      disabled={isBulkDeleting}
+                      className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <X size={14} /> Unselect All (தெரிவை நீக்கு)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleBulkDeleteSelected(filteredStudents)}
+                      disabled={isBulkDeleting}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-xl text-xs sm:text-sm font-black transition-all shadow-md shadow-red-600/20 flex items-center gap-1.5 cursor-pointer"
+                      title="தெரிவு செய்யப்பட்ட மாணவர்களை ஆப் மற்றும் Firebase-லிருந்து நிரந்தரமாக நீக்கு"
+                    >
+                      <Trash2 size={15} />
+                      {isBulkDeleting
+                        ? "Firebase-லிருந்து நீக்கப்படுகிறது..."
+                        : `Delete Selected (${totalSelectedCount}) / பல்க் நீக்கு`}
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {filteredStudents.length === 0 ? (
             <div className="text-center py-16 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
               <User size={40} className="mx-auto text-slate-300 mb-2" />
@@ -2797,11 +2925,31 @@ ${videoZoomUrl}
             </div>
           ) : studentViewMode === 'grid' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 sm:gap-5">
-              {filteredStudents.map(student => (
+              {filteredStudents.map(student => {
+                const isSelected = selectedStudentIds.has(String(student.id));
+                return (
                 <div 
                   key={student.id} 
-                  className="bg-white border border-slate-200 hover:border-indigo-300 hover:shadow-xl transition-all duration-200 rounded-2xl p-4 flex flex-col items-center justify-between text-center relative group"
+                  className={`bg-white border transition-all duration-200 rounded-2xl p-4 flex flex-col items-center justify-between text-center relative group ${
+                    isSelected
+                      ? "border-rose-400 ring-2 ring-rose-200 bg-rose-50/20 shadow-md"
+                      : "border-slate-200 hover:border-indigo-300 hover:shadow-xl"
+                  }`}
                 >
+                  {/* Individual Bulk Select Checkbox */}
+                  <label
+                    className="absolute top-3 left-3 z-10 cursor-pointer flex items-center justify-center p-1 rounded-lg bg-white/90 border border-slate-200 hover:border-indigo-400 shadow-2xs"
+                    title="மாணவரைத் தெரிவு செய் / Select student"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelectStudent(String(student.id))}
+                      className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-slate-300 cursor-pointer"
+                    />
+                  </label>
+
                   <div className="w-full flex flex-col items-center">
                     {/* Student Image / Avatar */}
                     <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-indigo-100 to-purple-100 border-2 border-indigo-200 shadow-sm flex items-center justify-center mb-3 overflow-hidden group-hover:scale-105 transition-transform">
@@ -2904,7 +3052,8 @@ ${videoZoomUrl}
                     </div>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           ) : (
             /* Table View Mode */
@@ -2912,6 +3061,24 @@ ${videoZoomUrl}
               <table className="w-full text-left text-sm border-collapse">
                 <thead>
                   <tr className="bg-slate-50 text-slate-700 border-b border-slate-200 text-xs font-bold uppercase tracking-wider">
+                    <th className="px-3 py-3 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        checked={filteredStudents.length > 0 && filteredStudents.every((s) => selectedStudentIds.has(String(s.id)))}
+                        onChange={() => {
+                          const fIds = filteredStudents.map((s) => String(s.id));
+                          const allSel = fIds.length > 0 && fIds.every((id) => selectedStudentIds.has(id));
+                          setSelectedStudentIds((prev) => {
+                            const next = new Set(prev);
+                            if (allSel) fIds.forEach((id) => next.delete(id));
+                            else fIds.forEach((id) => next.add(id));
+                            return next;
+                          });
+                        }}
+                        className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
+                        title="Select All / Unselect All"
+                      />
+                    </th>
                     <th className="px-4 py-3">Student</th>
                     <th className="px-4 py-3">Roll No</th>
                     <th className="px-4 py-3">Class / Grade</th>
@@ -2922,8 +3089,18 @@ ${videoZoomUrl}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
-                  {filteredStudents.map((student) => (
-                    <tr key={student.id} className="hover:bg-slate-50/80 transition-colors">
+                  {filteredStudents.map((student) => {
+                    const isSelected = selectedStudentIds.has(String(student.id));
+                    return (
+                    <tr key={student.id} className={`transition-colors ${isSelected ? "bg-rose-50/50" : "hover:bg-slate-50/80"}`}>
+                      <td className="px-3 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectStudent(String(student.id))}
+                          className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-slate-300 cursor-pointer"
+                        />
+                      </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold flex items-center justify-center overflow-hidden shrink-0">
@@ -3012,7 +3189,8 @@ ${videoZoomUrl}
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

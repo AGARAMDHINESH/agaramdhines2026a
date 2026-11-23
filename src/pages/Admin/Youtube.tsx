@@ -112,7 +112,8 @@ export default function Youtube() {
       setWebPosts(updatedPosts);
       await saveWebPosts(updatedPosts);
     }
-    alert("கோப்பு நீக்கப்பட்டது.");
+    setFormData(prev => prev.folder === folderName ? { ...prev, folder: '' } : prev);
+    alert("கோப்பு (Folder) வெற்றிகரமாக நீக்கப்பட்டது.");
   };
 
   const handleDeleteSubject = async (subjectName: string) => {
@@ -746,6 +747,15 @@ export default function Youtube() {
                         <option key={f} value={f}>{f}</option>
                       ))}
                     </select>
+                  )}
+                  {formData.folder && !isNewFolder && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteFolder(formData.folder)}
+                      className="mt-2 text-[10px] text-red-600 hover:text-red-800 flex items-center gap-1 font-bold bg-red-50 hover:bg-red-100 px-2 py-1 rounded transition-colors cursor-pointer"
+                    >
+                      <Trash2 size={12} /> இந்த ஃபோல்டரை (Folder) நீக்கு
+                    </button>
                   )}
                 </div>
                 {activeTab === 'webposts' && (
